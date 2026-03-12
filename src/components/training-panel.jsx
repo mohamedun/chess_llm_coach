@@ -23,8 +23,8 @@ import {
 } from "lucide-react";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 
-import { Button } from "@/components/ui/button";
 import TrainingOpeningTutorialPanel from "@/components/training-opening-tutorial-panel";
+import { Button } from "@/components/ui/button";
 import { ENDGAMES } from "@/data/endgames";
 import { getPuzzleSession, PUZZLES } from "@/data/puzzles";
 import { OPENINGS } from "@/lib/openings";
@@ -129,7 +129,7 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
   const [puzzleIndex, setPuzzleIndex] = useState(0);
 
   const chessReference = useRef(null);
-  const puzzleOrientationRef = useRef("white");
+  const puzzleOrientationReference = useRef("white");
   const [fen, setFen] = useState("");
   const [solutionStep, setSolutionStep] = useState(0);
   const [status, setStatus] = useState("idle"); // idle | correct-step | wrong | solved | revealed
@@ -152,7 +152,7 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
       if (!p) return;
       const g = new Chess(p.fen);
       chessReference.current = g;
-      puzzleOrientationRef.current = g.turn() === "w" ? "white" : "black";
+      puzzleOrientationReference.current = g.turn() === "w" ? "white" : "black";
       setSolutionStep(0);
       setStatus("idle");
       setFeedback({ type: "info", text: p.description || guide.intro });
@@ -160,7 +160,7 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
       setWrongCount(0);
       onBoardUpdate({
         fen: g.fen(),
-        orientation: puzzleOrientationRef.current,
+        orientation: puzzleOrientationReference.current,
         arrows: [],
         isTrainingActive: true,
       });
@@ -196,7 +196,7 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
             });
             onBoardUpdate({
               fen: newFen,
-              orientation: puzzleOrientationRef.current,
+              orientation: puzzleOrientationReference.current,
               arrows: [],
               isTrainingActive: true,
             });
@@ -208,7 +208,7 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
             });
             onBoardUpdate({
               fen: newFen,
-              orientation: puzzleOrientationRef.current,
+              orientation: puzzleOrientationReference.current,
               arrows: [],
               isTrainingActive: true,
             });
@@ -257,7 +257,7 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
             });
             onBoardUpdate({
               fen: newFen,
-              orientation: puzzleOrientationRef.current,
+              orientation: puzzleOrientationReference.current,
               arrows: [],
               isTrainingActive: true,
             });
@@ -333,7 +333,7 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
     });
     onBoardUpdate({
       fen: chessReference.current.fen(),
-      orientation: puzzleOrientationRef.current,
+      orientation: puzzleOrientationReference.current,
       arrows: hintArrow,
       isTrainingActive: true,
     });
@@ -361,7 +361,7 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
     });
     onBoardUpdate({
       fen: game.fen(),
-      orientation: puzzleOrientationRef.current,
+      orientation: puzzleOrientationReference.current,
       arrows,
       isTrainingActive: true,
     });

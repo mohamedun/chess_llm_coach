@@ -24,6 +24,7 @@ import {
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
+import TrainingOpeningTutorialPanel from "@/components/training-opening-tutorial-panel";
 import { ENDGAMES } from "@/data/endgames";
 import { getPuzzleSession, PUZZLES } from "@/data/puzzles";
 import { OPENINGS } from "@/lib/openings";
@@ -1582,12 +1583,12 @@ const MODULES = [
   {
     id: "opening",
     icon: BookOpen,
-    label: "Opening Drill",
-    desc: "Memorize and practice opening theory move by move.",
+    label: "Opening Tutorials",
+    desc: "Study curated tutorial scripts with plans, coach moves, and real ideas.",
     color: "text-blue-400",
     bg: "bg-blue-500/10",
     border: "border-blue-500/30 hover:border-blue-400/60",
-    count: `${OPENINGS.length} openings`,
+    count: "JSON library",
   },
   {
     id: "endgame",
@@ -1710,7 +1711,9 @@ export default function TrainingPanel({
   return (
     <div className="flex flex-col h-full border-l border-border bg-card animate-in fade-in slide-in-from-right-2 duration-200">
       {activeModule === "puzzle" && <PuzzleTrainer {...sharedProperties} />}
-      {activeModule === "opening" && <OpeningTrainer {...sharedProperties} />}
+      {activeModule === "opening" && (
+        <TrainingOpeningTutorialPanel {...sharedProperties} />
+      )}
       {activeModule === "endgame" && <EndgameTrainer {...sharedProperties} />}
     </div>
   );

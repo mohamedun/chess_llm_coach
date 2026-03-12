@@ -1,12 +1,15 @@
 import { Chess } from "chess.js";
-import { X, RefreshCw, BookOpen } from "lucide-react";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { ArrowLeftRight, BookOpen, RefreshCw, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Chessboard } from "react-chessboard";
 
 import { Button } from "@/components/ui/button";
-import { OPENINGS } from "@/lib/openings";
+import {
+  loadTutorialByFile,
+  loadTutorialCatalog,
+  normalizeSan,
+} from "@/lib/opening-tutorials";
 
-// ── Category colors and emoji ────────────────────────────────────────────────
 const CATEGORY_STYLE = {
   open: { color: "text-blue-400", emoji: "⚔️" },
   "semi-open": { color: "text-yellow-400", emoji: "🔀" },
@@ -14,216 +17,295 @@ const CATEGORY_STYLE = {
   flank: { color: "text-green-400", emoji: "🌀" },
 };
 
-// ── Parse SAN move list from opening string ───────────────────────────────────
-/**
- *
- */
-const parseMoves = (movesString) => movesString.trim().split(/\s+/);
+const sideLabel = (side) => (side === "black" ? "Black" : "White");
 
-// ── OpeningDrillMode ─────────────────────────────────────────────────────────
+const buildSquareStyles = (lastMoveSquares, focusSquares) => {
+  const styles = {};
+
+  for (const square of focusSquares) {
+    styles[square] = {
+      backgroundColor: "rgba(56, 189, 248, 0.18)",
+      boxShadow: "inset 0 0 0 2px rgba(56, 189, 248, 0.5)",
+    };
+  }
+
+  for (const square of Object.keys(lastMoveSquares)) {
+    styles[square] = {
+      ...(styles[square] ?? {}),
+      backgroundColor: "rgba(250, 204, 21, 0.35)",
+    };
+  }
+
+  return styles;
+};
+
+const buildCorrectionArrow = (fen, san) => {
+  try {
+    const preview = new Chess(fen);
+    const move = preview.move(san);
+    if (!move) return [];
+
+    return [
+      {
+        startSquare: move.from,
+        endSquare: move.to,
+        color: "#22c55e",
+      },
+    ];
+  } catch {
+    return [];
+  }
+};
+
 /**
  *
  */
 export default function OpeningDrillMode({ onClose }) {
-  const [phase, setPhase] = useState("select"); // "select" | "drill"
-  const [selectedOpening, setSelectedOpening] = useState(null);
-  const [playerSide, setPlayerSide] = useState("w"); // "w" | "b"
-  const [searchQuery, setSearchQuery] = useState("");
-
-  // Drill state
-  const [chess, setChess] = useState(null);
-  const [fen, setFen] = useState("");
-  const [moveList, setMoveList] = useState([]); // parsed SAN moves for the opening
-  const [drillIndex, setDrillIndex] = useState(0); // current step in the move list
-  const [status, setStatus] = useState("idle"); // "idle"|"wrong"|"opponent"|"complete"
-  const [_wrongAttempt, setWrongAttempt] = useState(false);
-  const [lastMoveSquares, setLastMoveSquares] = useState({});
-  const [correctArrow, setCorrectArrow] = useState([]);
-  const [_masteredCount, setMasteredCount] = useState(0);
-  const [totalMoves, setTotalMoves] = useState(0);
-
+  const chessReference = useRef(new Chess());
   const opponentTimeoutReference = useRef(null);
+  const wrongMoveTimeoutReference = useRef(null);
 
-  // ── Filter openings ───────────────────────────────────────────────────────
-  const filtered = OPENINGS.filter(
-    (o) =>
-      !searchQuery ||
-      o.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      o.eco.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  const [phase, setPhase] = useState("select");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [catalog, setCatalog] = useState([]);
+  const [catalogState, setCatalogState] = useState("loading");
+  const [catalogError, setCatalogError] = useState("");
 
-  // ── Start drill for a given opening + side ────────────────────────────────
-  const startDrill = useCallback((opening, side) => {
-    clearTimeout(opponentTimeoutReference.current);
-    const moves = parseMoves(opening.moves);
-    const g = new Chess();
-    setChess(g);
-    setFen(g.fen());
-    setMoveList(moves);
-    setDrillIndex(0);
-    setStatus("idle");
-    setWrongAttempt(false);
-    setLastMoveSquares({});
-    setCorrectArrow([]);
-    setSelectedOpening(opening);
-    setPlayerSide(side);
-    setMasteredCount(0);
-    setTotalMoves(moves.length);
-    setPhase("drill");
+  const [tutorial, setTutorial] = useState(null);
+  const [tutorialState, setTutorialState] = useState("idle");
+  const [tutorialError, setTutorialError] = useState("");
 
-    // If the first move is the opponent's, auto-play it
-    if (side === "b" && moves.length > 0) {
-      // White plays moves[0], then player (Black) plays moves[1], etc.
-      // Side "b" means player plays Black — so White (opponent) moves first
-      setTimeout(() => playOpponentMove(g, moves, 0, side), 500);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const [fen, setFen] = useState(chessReference.current.fen());
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [status, setStatus] = useState("idle");
+  const [lastMoveSquares, setLastMoveSquares] = useState({});
+  const [correctionArrow, setCorrectionArrow] = useState([]);
+  const [boardOrientation, setBoardOrientation] = useState("white");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCatalog = async () => {
+      setCatalogState("loading");
+      setCatalogError("");
+
+      try {
+        const data = await loadTutorialCatalog();
+        if (cancelled) return;
+        setCatalog(data.items);
+        setCatalogState("ready");
+      } catch (error) {
+        if (cancelled) return;
+        setCatalogError(
+          error instanceof Error ? error.message : "Failed to load tutorials.",
+        );
+        setCatalogState("error");
+      }
+    };
+
+    loadCatalog();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(opponentTimeoutReference.current);
+      clearTimeout(wrongMoveTimeoutReference.current);
+    };
   }, []);
 
-  // ── Auto-play opponent's next move ────────────────────────────────────────
-  /**
-   *
-   */
-  const playOpponentMove = (game, moves, index, side) => {
-    if (index >= moves.length) return;
-    const isPlayerTurn =
-      (side === "w" && index % 2 === 0) || (side === "b" && index % 2 === 1);
-    if (isPlayerTurn) return; // it's the human's turn, stop
+  const resetBoardState = useCallback((nextTutorial) => {
+    chessReference.current = new Chess();
+    setFen(chessReference.current.fen());
+    setCurrentStepIndex(0);
+    setStatus("idle");
+    setLastMoveSquares({});
+    setCorrectionArrow([]);
+    setBoardOrientation(nextTutorial.defaultOrientation);
+  }, []);
+
+  const openTutorial = useCallback(
+    async (entry) => {
+      clearTimeout(opponentTimeoutReference.current);
+      clearTimeout(wrongMoveTimeoutReference.current);
+      setTutorialState("loading");
+      setTutorialError("");
+
+      try {
+        const loadedTutorial = await loadTutorialByFile(entry.file);
+        setTutorial(loadedTutorial);
+        resetBoardState(loadedTutorial);
+        setTutorialState("ready");
+        setPhase("drill");
+      } catch (error) {
+        setTutorial(null);
+        setTutorialError(
+          error instanceof Error ? error.message : "Failed to open tutorial.",
+        );
+        setTutorialState("error");
+        setPhase("select");
+      }
+    },
+    [resetBoardState],
+  );
+
+  const restartTutorial = useCallback(() => {
+    if (!tutorial) return;
+    clearTimeout(opponentTimeoutReference.current);
+    clearTimeout(wrongMoveTimeoutReference.current);
+    resetBoardState(tutorial);
+    setTutorialState("ready");
+  }, [resetBoardState, tutorial]);
+
+  const currentStep = tutorial?.steps[currentStepIndex] ?? null;
+  const previousStep =
+    tutorial && currentStepIndex > 0
+      ? tutorial.steps[currentStepIndex - 1]
+      : null;
+
+  useEffect(() => {
+    clearTimeout(opponentTimeoutReference.current);
+
+    if (
+      phase !== "drill" ||
+      tutorialState !== "ready" ||
+      !tutorial ||
+      !currentStep ||
+      currentStep.actor !== "opponent"
+    ) {
+      return undefined;
+    }
+
+    setStatus("opponent");
 
     opponentTimeoutReference.current = setTimeout(() => {
       try {
-        const mv = game.move(moves[index]);
-        if (!mv) return;
-        setFen(game.fen());
-        setLastMoveSquares({ [mv.from]: true, [mv.to]: true });
-        setCorrectArrow([]);
-        const nextIndex = index + 1;
-        setDrillIndex(nextIndex);
+        const move = chessReference.current.move(currentStep.san);
+        if (!move) {
+          throw new Error(
+            `The tutorial move ${currentStep.san} is illegal in the current position.`,
+          );
+        }
 
-        if (nextIndex >= moves.length) {
+        setFen(chessReference.current.fen());
+        setLastMoveSquares({ [move.from]: true, [move.to]: true });
+        setCorrectionArrow([]);
+        setCurrentStepIndex((index) => index + 1);
+
+        if (currentStepIndex + 1 >= tutorial.steps.length) {
           setStatus("complete");
-          setMasteredCount((n) => n + 1);
           return;
         }
-        setStatus("idle");
-        // If next move is also opponent's (e.g., both sides of a line), recurse
-        playOpponentMove(game, moves, nextIndex, side);
-      } catch {
-        /* */
-      }
-    }, 700);
-  };
 
-  // ── Handle player piece drop ──────────────────────────────────────────────
+        setStatus("idle");
+      } catch (error) {
+        setTutorialError(
+          error instanceof Error
+            ? error.message
+            : "Failed to play tutorial move.",
+        );
+        setTutorialState("error");
+      }
+    }, 950);
+
+    return () => clearTimeout(opponentTimeoutReference.current);
+  }, [currentStep, currentStepIndex, phase, tutorial, tutorialState]);
+
   const handleDrop = useCallback(
     (from, to) => {
-      if (!chess || !moveList || status === "complete") return false;
+      if (
+        tutorialState !== "ready" ||
+        !tutorial ||
+        !currentStep ||
+        currentStep.actor !== "player" ||
+        status === "complete"
+      ) {
+        return false;
+      }
 
-      const expectedSan = moveList[drillIndex];
-      if (!expectedSan) return false;
-
-      // Check if it's the player's turn
-      const isPlayerTurn =
-        (playerSide === "w" && drillIndex % 2 === 0) ||
-        (playerSide === "b" && drillIndex % 2 === 1);
-      if (!isPlayerTurn) return false;
-
-      // Try the move
       let move;
       try {
-        move = chess.move({ from, to, promotion: "q" });
+        move = chessReference.current.move({ from, to, promotion: "q" });
         if (!move) return false;
       } catch {
         return false;
       }
 
-      // Compare SAN
-      if (move.san === expectedSan) {
-        // Correct!
-        setFen(chess.fen());
-        setLastMoveSquares({ [from]: true, [to]: true });
-        setCorrectArrow([]);
-        setWrongAttempt(false);
-        const nextIndex = drillIndex + 1;
-        setDrillIndex(nextIndex);
-        setMasteredCount((n) => n + 1);
+      if (normalizeSan(move.san) === currentStep.san) {
+        setFen(chessReference.current.fen());
+        setLastMoveSquares({ [move.from]: true, [move.to]: true });
+        setCorrectionArrow([]);
+        setStatus("idle");
+        setCurrentStepIndex((index) => index + 1);
 
-        if (nextIndex >= moveList.length) {
+        if (currentStepIndex + 1 >= tutorial.steps.length) {
           setStatus("complete");
-          return true;
         }
-        setStatus("opponent");
-        playOpponentMove(chess, moveList, nextIndex, playerSide);
+
         return true;
       }
 
-      // Wrong — undo and highlight correct move
-      chess.undo();
-      setWrongAttempt(true);
+      chessReference.current.undo();
       setStatus("wrong");
-
-      // Show correct move as arrow
-      try {
-        const temporaryG = new Chess(chess.fen());
-        const correctMove = temporaryG.move(expectedSan);
-        if (correctMove) {
-          setCorrectArrow([
-            {
-              startSquare: correctMove.from,
-              endSquare: correctMove.to,
-              color: "#22c55e",
-            },
-          ]);
-        }
-      } catch {
-        /* */
-      }
-
-      // Auto-clear wrong state after 2s
-      setTimeout(() => {
-        setStatus((s) => (s === "wrong" ? "idle" : s));
-        setCorrectArrow([]);
-        setWrongAttempt(false);
-      }, 2000);
-
+      setCorrectionArrow(
+        buildCorrectionArrow(chessReference.current.fen(), currentStep.san),
+      );
+      clearTimeout(wrongMoveTimeoutReference.current);
+      wrongMoveTimeoutReference.current = setTimeout(() => {
+        setStatus((value) => (value === "wrong" ? "idle" : value));
+        setCorrectionArrow([]);
+      }, 2200);
       return false;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chess, moveList, drillIndex, playerSide, status],
+    [currentStep, currentStepIndex, status, tutorial, tutorialState],
   );
 
-  // ── Reset drill ──────────────────────────────────────────────────────────
-  const resetDrill = useCallback(() => {
-    if (selectedOpening) startDrill(selectedOpening, playerSide);
-  }, [selectedOpening, playerSide, startDrill]);
+  const filteredCatalog = catalog.filter((entry) => {
+    if (!searchQuery.trim()) return true;
 
-  // Cleanup on unmount
-  useEffect(() => () => clearTimeout(opponentTimeoutReference.current), []);
+    const query = searchQuery.toLowerCase();
+    return [entry.title, entry.eco, entry.summary, ...(entry.tags ?? [])]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
 
-  const orientation = playerSide === "w" ? "white" : "black";
-  const progressPct =
-    totalMoves > 0 ? ((drillIndex / totalMoves) * 100).toFixed(0) : 0;
+  const progressPct = tutorial
+    ? Math.round((currentStepIndex / tutorial.steps.length) * 100)
+    : 0;
 
-  const lastMoveStyle = Object.fromEntries(
-    Object.keys(lastMoveSquares).map((sq) => [
-      sq,
-      { backgroundColor: "rgba(255,255,0,0.35)" },
-    ]),
+  const cat = CATEGORY_STYLE[tutorial?.category] ?? CATEGORY_STYLE.open;
+  const displayArrows =
+    correctionArrow.length > 0 ? correctionArrow : (currentStep?.arrows ?? []);
+  const squareStyles = buildSquareStyles(
+    lastMoveSquares,
+    currentStep?.focusSquares ?? previousStep?.focusSquares ?? [],
   );
 
-  // ── Phase: Opening Selection ──────────────────────────────────────────────
+  const isPlayerTurn =
+    tutorialState === "ready" &&
+    status !== "complete" &&
+    currentStep?.actor === "player";
+
+  const statusMessage =
+    status === "complete"
+      ? (tutorial?.completionSummary ?? "Tutorial complete.")
+      : status === "wrong"
+        ? currentStep?.hint ||
+          `Look again and find ${currentStep?.san ?? "the move"}.`
+        : status === "opponent"
+          ? `${sideLabel(tutorial?.side)}'s opponent demonstrates ${currentStep?.san}.`
+          : currentStep?.instruction || "Follow the lesson step by step.";
+
   if (phase === "select") {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-        <div className="bg-card border border-border rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200 w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh]">
-          {/* Header */}
+        <div className="bg-card border border-border rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200 w-full max-w-4xl overflow-hidden flex flex-col max-h-[92vh]">
           <div className="flex items-center justify-between p-4 border-b border-border">
             <div>
               <p className="text-[10px] uppercase tracking-widest text-primary font-semibold">
-                🎯 Opening Drill
+                Opening Tutorials
               </p>
               <h2 className="text-base font-semibold text-foreground mt-0.5">
-                Choose your opening
+                Learn full ideas, not one-move drills
               </h2>
             </div>
             <button
@@ -234,193 +316,265 @@ export default function OpeningDrillMode({ onClose }) {
             </button>
           </div>
 
-          {/* Side picker */}
-          <div className="px-4 py-3 border-b border-border">
-            <p className="text-xs text-muted-foreground mb-2">Play as:</p>
-            <div className="flex gap-2">
-              {[
-                { val: "w", label: "⬜ White" },
-                { val: "b", label: "⬛ Black" },
-              ].map(({ val, label }) => (
-                <button
-                  key={val}
-                  onClick={() => setPlayerSide(val)}
-                  className={`flex-1 py-1.5 rounded-md text-sm font-medium border transition-colors ${
-                    playerSide === val
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+          <div className="grid md:grid-cols-[280px_1fr] min-h-0 flex-1">
+            <div className="border-r border-border p-4 bg-black/10 space-y-4">
+              <div className="rounded-xl border border-border bg-secondary/20 p-3 space-y-2">
+                <p className="text-xs font-semibold text-foreground">
+                  How this works
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Each tutorial is a JSON script from the public tutorial
+                  library. It controls both sides, explains the purpose of each
+                  move, and ends on a concrete plan or tactical gain.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border bg-secondary/20 p-3 space-y-2">
+                <p className="text-xs font-semibold text-foreground">
+                  Search library
+                </p>
+                <input
+                  type="text"
+                  placeholder="French, Milner-Barry, C02..."
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  className="w-full bg-secondary/50 border border-border rounded-md px-3 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary/70 transition-colors"
+                />
+              </div>
+
+              <div className="rounded-xl border border-border bg-secondary/20 p-3 space-y-2">
+                <p className="text-xs font-semibold text-foreground">
+                  Quality target
+                </p>
+                <ul className="text-xs text-muted-foreground space-y-1 leading-relaxed list-disc pl-4">
+                  <li>Longer scripted lines with real plans</li>
+                  <li>Coach-controlled opponent responses</li>
+                  <li>Curated traps only when the tactic is real</li>
+                </ul>
+              </div>
             </div>
-          </div>
 
-          {/* Search */}
-          <div className="px-4 py-3 border-b border-border">
-            <input
-              type="text"
-              placeholder="Search opening… (e.g. Sicilian, Ruy Lopez)"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-secondary/50 border border-border rounded-md px-3 py-1.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary/70 transition-colors"
-            />
-          </div>
+            <div className="min-h-0 flex flex-col">
+              {catalogState === "loading" && (
+                <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Loading tutorial library...
+                </div>
+              )}
 
-          {/* Opening list */}
-          <div className="overflow-y-auto flex-1 py-1">
-            {filtered.map((opening) => {
-              const cat =
-                CATEGORY_STYLE[opening.category] ?? CATEGORY_STYLE.open;
-              const moves = parseMoves(opening.moves);
-              return (
-                <button
-                  key={`${opening.eco}-${opening.name}`}
-                  onClick={() => startDrill(opening, playerSide)}
-                  className="w-full flex items-start gap-3 px-4 py-3 hover:bg-secondary/40 transition-colors text-left border-b border-border/30"
-                >
-                  <span className="text-lg mt-0.5">{cat.emoji}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-foreground">
-                        {opening.name}
-                      </span>
-                      <span className="text-[10px] font-mono text-muted-foreground bg-secondary/60 px-1 rounded">
-                        {opening.eco}
-                      </span>
-                      <span
-                        className={`text-[10px] font-semibold uppercase tracking-wide ${cat.color}`}
-                      >
-                        {opening.category}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                      {opening.idea}
+              {catalogState === "error" && (
+                <div className="flex-1 flex items-center justify-center p-6">
+                  <div className="max-w-md rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300 space-y-3">
+                    <p className="font-semibold text-red-200">
+                      Could not load tutorial library
                     </p>
-                    <p className="text-[10px] text-primary/70 mt-0.5 font-mono">
-                      {opening.moves}
-                    </p>
+                    <p>{catalogError}</p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => window.location.reload()}
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                      Retry
+                    </Button>
                   </div>
-                  <span className="text-[10px] text-muted-foreground shrink-0">
-                    {moves.length} moves
-                  </span>
-                </button>
-              );
-            })}
-            {filtered.length === 0 && (
-              <p className="text-center text-muted-foreground text-sm py-8">
-                No openings found
-              </p>
-            )}
+                </div>
+              )}
+
+              {catalogState === "ready" && (
+                <div className="overflow-y-auto flex-1 p-3">
+                  <div className="grid gap-3">
+                    {filteredCatalog.map((entry) => {
+                      const entryCategory =
+                        CATEGORY_STYLE[entry.category] ??
+                        CATEGORY_STYLE["semi-open"];
+
+                      return (
+                        <button
+                          key={entry.id}
+                          onClick={() => openTutorial(entry)}
+                          className="w-full rounded-2xl border border-border bg-secondary/20 hover:bg-secondary/35 transition-colors p-4 text-left"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-2 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-lg">
+                                  {entryCategory.emoji}
+                                </span>
+                                <span className="text-sm font-semibold text-foreground">
+                                  {entry.title}
+                                </span>
+                                <span className="text-[10px] font-mono text-muted-foreground bg-secondary/60 px-1 rounded">
+                                  {entry.eco}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-semibold uppercase tracking-wide ${entryCategory.color}`}
+                                >
+                                  {entry.category}
+                                </span>
+                              </div>
+                              <p className="text-sm text-muted-foreground leading-relaxed">
+                                {entry.summary}
+                              </p>
+                              <div className="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground">
+                                <span className="rounded-full border border-border px-2 py-0.5">
+                                  Play as {sideLabel(entry.side)}
+                                </span>
+                                <span className="rounded-full border border-border px-2 py-0.5">
+                                  {entry.stepCount} scripted steps
+                                </span>
+                                <span className="rounded-full border border-border px-2 py-0.5 capitalize">
+                                  {entry.difficulty}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 text-primary text-xs font-semibold">
+                              Open tutorial
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                    {filteredCatalog.length === 0 && (
+                      <div className="rounded-2xl border border-border bg-secondary/20 p-6 text-center text-sm text-muted-foreground">
+                        No tutorials match your search.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // ── Phase: Drill ──────────────────────────────────────────────────────────
-  const currentExpected = moveList[drillIndex];
-  const isPlayerTurn =
-    status !== "complete" &&
-    status !== "opponent" &&
-    ((playerSide === "w" && drillIndex % 2 === 0) ||
-      (playerSide === "b" && drillIndex % 2 === 1));
-
-  const statusMessage =
-    {
-      idle: isPlayerTurn
-        ? `Your turn — play ${playerSide === "w" ? "White's" : "Black's"} next move: ${currentExpected ?? "?"}`
-        : "Waiting for opponent…",
-      wrong: `✗ Not quite! The correct move is ${currentExpected ?? "?"}. (green arrow on board)`,
-      opponent: "Opponent is thinking…",
-      complete: "🎉 You know this line! Excellent work.",
-    }[status] ?? "";
-
-  const cat = CATEGORY_STYLE[selectedOpening?.category] ?? CATEGORY_STYLE.open;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl flex flex-col md:flex-row gap-0 w-full max-w-[900px] overflow-hidden max-h-[95vh]">
-        {/* ── Left: Board ──────────────────────────────────────────────────── */}
-        <div className="shrink-0 w-full md:w-[420px] flex items-center justify-center p-4 bg-black/20">
-          <div className="w-full">
-            <Chessboard
-              id="drill-board"
-              position={fen}
-              onPieceDrop={handleDrop}
-              boardOrientation={orientation}
-              arePiecesDraggable={isPlayerTurn && status !== "complete"}
-              customBoardStyle={{
-                borderRadius: "6px",
-                boxShadow: "0 4px 24px #0008",
-              }}
-              customDarkSquareStyle={{ backgroundColor: "#4a7c59" }}
-              customLightSquareStyle={{ backgroundColor: "#f0d9b5" }}
-              customSquareStyles={lastMoveStyle}
-              options={{
-                showNotation: true,
-                arrows: correctArrow,
-                clearArrowsOnPositionChange: false,
-              }}
-            />
-          </div>
-        </div>
-
-        {/* ── Right: Info Panel ────────────────────────────────────────────── */}
-        <div className="flex flex-col flex-1 p-5 gap-4 min-w-0 overflow-y-auto">
-          {/* Header */}
-          <div className="flex items-start justify-between gap-2">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl flex flex-col lg:flex-row gap-0 w-full max-w-295 overflow-hidden max-h-[95vh]">
+        <div className="shrink-0 w-full lg:w-130 p-4 bg-black/20 border-b lg:border-b-0 lg:border-r border-border">
+          <div className="flex items-center justify-between gap-2 mb-3">
             <div>
               <p className="text-[10px] uppercase tracking-widest text-primary font-semibold">
-                🎯 Opening Drill
+                Opening Tutorial
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Playing as {playerSide === "w" ? "White ⬜" : "Black ⬛"}
+                {tutorial?.title} · Play as {sideLabel(tutorial?.side)}
               </p>
             </div>
-            <div className="flex gap-1">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() =>
+                  setBoardOrientation((value) =>
+                    value === "white" ? "black" : "white",
+                  )
+                }
+                className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-secondary"
+                title="Flip board"
+              >
+                <ArrowLeftRight className="w-4 h-4" />
+              </button>
               <button
                 onClick={() => setPhase("select")}
-                className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-secondary"
-                title="Change opening"
+                className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-secondary"
+                title="Change tutorial"
               >
                 <BookOpen className="w-4 h-4" />
               </button>
               <button
                 onClick={onClose}
-                className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-secondary"
+                className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-secondary"
+                title="Close"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* Opening info */}
-          <div className="border border-border rounded-lg p-3 bg-secondary/30">
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="text-sm font-semibold text-foreground">
-                {selectedOpening?.name}
-              </span>
-              <span className="text-[10px] font-mono text-muted-foreground bg-secondary/60 px-1 rounded">
-                {selectedOpening?.eco}
-              </span>
-              <span
-                className={`text-[10px] font-semibold uppercase tracking-wide ${cat.color}`}
-              >
-                {cat.emoji} {selectedOpening?.category}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {selectedOpening?.idea}
-            </p>
+          <div className="rounded-xl overflow-hidden shadow-2xl">
+            <Chessboard
+              options={{
+                id: "opening-tutorial-board",
+                position: fen,
+                onPieceDrop: ({ sourceSquare, targetSquare }) =>
+                  handleDrop(sourceSquare, targetSquare),
+                boardOrientation,
+                allowDragging: isPlayerTurn,
+                canDragPiece: () => isPlayerTurn,
+                animationDurationInMs: 220,
+                boardStyle: { borderRadius: "12px" },
+                darkSquareStyle: { backgroundColor: "#4a7c59" },
+                lightSquareStyle: { backgroundColor: "#f0d9b5" },
+                squareStyles,
+                showNotation: true,
+                arrows: displayArrows,
+                clearArrowsOnPositionChange: false,
+                clearArrowsOnClick: false,
+              }}
+            />
           </div>
 
-          {/* Progress */}
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs text-muted-foreground">
+          <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>
+              Board view:{" "}
+              {boardOrientation === "white"
+                ? "White at bottom"
+                : "Black at bottom"}
+            </span>
+            <span>{progressPct}% complete</span>
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-0 overflow-y-auto p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-2 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold text-foreground">
+                  {tutorial?.title}
+                </span>
+                <span className="text-[10px] font-mono text-muted-foreground bg-secondary/60 px-1 rounded">
+                  {tutorial?.eco}
+                </span>
+                <span
+                  className={`text-[10px] font-semibold uppercase tracking-wide ${cat.color}`}
+                >
+                  {cat.emoji} {tutorial?.category}
+                </span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-primary rounded-full border border-primary/30 px-2 py-0.5">
+                  {tutorial?.difficulty}
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed max-w-3xl">
+                {tutorial?.description}
+              </p>
+            </div>
+
+            <div className="flex gap-2 shrink-0">
+              <Button size="sm" variant="ghost" onClick={restartTutorial}>
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                Restart
+              </Button>
+            </div>
+          </div>
+
+          {tutorialState === "error" && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300 space-y-2">
+              <p className="font-semibold text-red-200">Tutorial error</p>
+              <p>
+                {tutorialError || "This tutorial script could not continue."}
+              </p>
+            </div>
+          )}
+
+          <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-2">
+            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
               <span>
-                Move {Math.min(drillIndex + 1, totalMoves)} / {totalMoves}
+                Step{" "}
+                {Math.min(currentStepIndex + 1, tutorial?.steps.length ?? 1)} /{" "}
+                {tutorial?.steps.length}
               </span>
               <span>{progressPct}% mastered</span>
             </div>
@@ -432,110 +586,147 @@ export default function OpeningDrillMode({ onClose }) {
             </div>
           </div>
 
-          {/* Move sequence visualization */}
-          <div className="border border-border rounded-lg p-3 bg-secondary/20">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-2">
-              Opening Line
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {moveList.map((move, index) => {
-                const isWhiteMove = index % 2 === 0;
-                const isPlayed = index < drillIndex;
-                const isCurrent = index === drillIndex;
-                const isPlayerMove =
-                  (playerSide === "w" && isWhiteMove) ||
-                  (playerSide === "b" && !isWhiteMove);
-                return (
-                  <span
-                    key={index}
-                    className={`text-xs px-1.5 py-0.5 rounded font-mono ${
-                      isPlayed
-                        ? "text-muted-foreground bg-secondary/40"
-                        : isCurrent && isPlayerMove
-                          ? "text-primary bg-primary/20 font-bold ring-1 ring-primary/50 animate-pulse"
-                          : isCurrent
-                            ? "text-yellow-400 bg-yellow-500/10"
-                            : "text-muted-foreground/40"
+          <div className="grid xl:grid-cols-[1.25fr_0.75fr] gap-4">
+            <div className="space-y-4">
+              <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-primary">
+                    {status === "complete"
+                      ? "Result"
+                      : currentStep?.actor === "player"
+                        ? "Your Move"
+                        : "Coach Move"}
+                  </p>
+                  {currentStep && status !== "complete" && (
+                    <span className="text-[11px] rounded-full border border-border px-2 py-0.5 text-muted-foreground">
+                      Scripted move: {currentStep.san}
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-lg font-semibold text-foreground">
+                    {status === "complete"
+                      ? tutorial?.completionTitle
+                      : currentStep?.title || "Follow the tutorial"}
+                  </h3>
+                  <p
+                    className={`text-sm leading-relaxed ${
+                      status === "wrong"
+                        ? "text-red-300"
+                        : status === "complete"
+                          ? "text-green-300"
+                          : "text-muted-foreground"
                     }`}
-                    title={isPlayerMove ? "Your move" : "Opponent's move"}
                   >
-                    {isWhiteMove && `${Math.floor(index / 2) + 1}.`}
-                    {move}
-                  </span>
-                );
-              })}
+                    {statusMessage}
+                  </p>
+                </div>
+
+                {status !== "complete" && currentStep?.coaching && (
+                  <div className="rounded-lg border border-border/70 bg-background/40 p-3 text-sm text-foreground leading-relaxed">
+                    {currentStep.coaching}
+                  </div>
+                )}
+              </div>
+
+              {previousStep && status !== "complete" && (
+                <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    Last move explained
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-foreground">
+                      {previousStep.title}
+                    </span>
+                    <span className="text-[10px] font-mono text-muted-foreground bg-secondary/60 px-1 rounded">
+                      {previousStep.san}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {previousStep.coaching || previousStep.instruction}
+                  </p>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Tutorial line
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {tutorial?.steps.map((step, index) => {
+                    const isPlayed = index < currentStepIndex;
+                    const isCurrent =
+                      index === currentStepIndex && status !== "complete";
+
+                    return (
+                      <span
+                        key={`${Math.floor(index / 2) + 1}-${step.actor}-${step.san}-${step.title}`}
+                        className={`text-xs px-2 py-1 rounded font-mono border ${
+                          isPlayed
+                            ? "text-muted-foreground bg-secondary/40 border-border/50"
+                            : isCurrent
+                              ? step.actor === "player"
+                                ? "text-primary bg-primary/15 border-primary/40"
+                                : "text-yellow-300 bg-yellow-500/10 border-yellow-500/30"
+                              : "text-muted-foreground/40 border-border/30"
+                        }`}
+                        title={
+                          step.actor === "player" ? "Your move" : "Coach move"
+                        }
+                      >
+                        {index % 2 === 0 && `${Math.floor(index / 2) + 1}.`}
+                        {step.san}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
-          </div>
 
-          {/* Status message */}
-          <div
-            className={`border rounded-lg p-3 text-sm font-medium ${
-              status === "complete"
-                ? "border-green-500/40 bg-green-500/10 text-green-400"
-                : status === "wrong"
-                  ? "border-red-500/40 bg-red-500/10 text-red-400"
-                  : status === "opponent"
-                    ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-400"
-                    : "border-border bg-secondary/20 text-muted-foreground"
-            }`}
-          >
-            {statusMessage}
-          </div>
+            <div className="space-y-4">
+              <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  What you are learning
+                </p>
+                <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
+                  {tutorial?.objectives.map((objective) => (
+                    <p key={objective}>{objective}</p>
+                  ))}
+                </div>
+              </div>
 
-          {/* Actions */}
-          {status === "complete" ? (
-            <div className="flex gap-2">
-              <Button
-                onClick={resetDrill}
-                variant="ghost"
-                size="sm"
-                className="flex-1"
-              >
-                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-                Drill Again
-              </Button>
-              <Button
-                onClick={() => setPhase("select")}
-                size="sm"
-                className="flex-1"
-              >
-                <BookOpen className="w-3.5 h-3.5 mr-1.5" />
-                New Opening
-              </Button>
+              <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Core plans
+                </p>
+                <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
+                  {tutorial?.plans.map((plan) => (
+                    <p key={plan}>{plan}</p>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Common mistakes to punish
+                </p>
+                <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
+                  {tutorial?.commonMistakes.map((mistake) => (
+                    <p key={mistake}>{mistake}</p>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-secondary/20 p-4 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Full script
+                </p>
+                <p className="text-sm text-foreground leading-relaxed">
+                  {tutorial?.line}
+                </p>
+              </div>
             </div>
-          ) : (
-            <Button
-              onClick={resetDrill}
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground"
-            >
-              <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-              Restart from beginning
-            </Button>
-          )}
-
-          {/* Side switcher */}
-          <div className="flex gap-2 pt-1 border-t border-border mt-auto">
-            <p className="text-xs text-muted-foreground self-center mr-1">
-              Switch side:
-            </p>
-            {[
-              { val: "w", label: "⬜ White" },
-              { val: "b", label: "⬛ Black" },
-            ].map(({ val, label }) => (
-              <button
-                key={val}
-                onClick={() => startDrill(selectedOpening, val)}
-                className={`flex-1 py-1 rounded-md text-xs font-medium border transition-colors ${
-                  playerSide === val
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
           </div>
         </div>
       </div>

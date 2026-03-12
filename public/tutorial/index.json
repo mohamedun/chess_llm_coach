@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "french-defense-advance-milner-barry",
+      "kind": "tutorial",
+      "title": "French Defense: Advance with the Milner-Barry Trap",
+      "eco": "C02",
+      "category": "semi-open",
+      "side": "white",
+      "difficulty": "club",
+      "summary": "Build the French Advance structure, finish development with purpose, and punish Black's greedy ...Nxd4? idea with a clean tactical shot.",
+      "tags": [
+        "French Defense",
+        "Advance Variation",
+        "Milner-Barry",
+        "White repertoire",
+        "trap"
+      ],
+      "stepCount": 19,
+      "file": "/tutorial/french-defense-advance-milner-barry.json"
+    }
+  ]
+}

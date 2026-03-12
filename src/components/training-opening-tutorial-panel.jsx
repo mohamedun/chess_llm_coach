@@ -4,6 +4,7 @@ import {
   BookOpen,
   Brain,
   CheckCircle2,
+  Check,
   ChevronLeft,
   Info,
   RotateCcw,
@@ -18,6 +19,8 @@ import {
   loadTutorialCatalog,
   normalizeSan,
 } from "@/lib/opening-tutorials";
+import { TYPE_TUTORIAL } from "@/lib/progress";
+import useProgressStore from "@/store/use-progress-store";
 
 const CAT_STYLE = {
   open: "text-blue-400 bg-blue-500/10 border-blue-500/20",
@@ -59,6 +62,7 @@ const TrainingOpeningTutorialPanel = ({
 }) => {
   const [phase, setPhase] = useState("list");
   const [searchQuery, setSearchQuery] = useState("");
+  const [solveFilter, setSolveFilter] = useState("all"); // "all" | "solved" | "unsolved"
   const [catalog, setCatalog] = useState([]);
   const [catalogState, setCatalogState] = useState("loading");
   const [catalogError, setCatalogError] = useState("");
@@ -68,6 +72,10 @@ const TrainingOpeningTutorialPanel = ({
   const [feedback, setFeedback] = useState(null);
   const [tutorialError, setTutorialError] = useState("");
   const [boardOrientation, setBoardOrientation] = useState("white");
+
+  const { fetchProgress, isSolved, solveItem, getSolvedCount } =
+    useProgressStore();
+  const [progressLoaded, setProgressLoaded] = useState(false);
 
   const chessReference = useRef(new Chess());
   const opponentTimerReference = useRef(null);
@@ -114,6 +122,14 @@ const TrainingOpeningTutorialPanel = ({
       clearTimeout(wrongMoveTimerReference.current);
     };
   }, []);
+
+  useEffect(() => {
+    const loadProgress = async () => {
+      await fetchProgress();
+      setProgressLoaded(true);
+    };
+    loadProgress();
+  }, [fetchProgress]);
 
   const resetTutorial = useCallback(
     (tutorial) => {
@@ -201,6 +217,9 @@ const TrainingOpeningTutorialPanel = ({
             type: "success",
             text: selectedTutorial.completionSummary || "Tutorial complete.",
           });
+          if (selectedTutorial?.id) {
+            solveItem(selectedTutorial.id, TYPE_TUTORIAL);
+          }
           return;
         }
 
@@ -252,6 +271,9 @@ const TrainingOpeningTutorialPanel = ({
               type: "success",
               text: selectedTutorial.completionSummary || "Tutorial complete.",
             });
+            if (selectedTutorial?.id) {
+              solveItem(selectedTutorial.id, TYPE_TUTORIAL);
+            }
           } else {
             setStatus("idle");
           }
@@ -309,15 +331,24 @@ const TrainingOpeningTutorialPanel = ({
     setTutorialError("");
   };
 
-  const displayed = catalog.filter((entry) => {
-    if (!searchQuery.trim()) return true;
+  const displayed = catalog
+    .filter((entry) => {
+      if (!searchQuery.trim()) return true;
 
-    const query = searchQuery.toLowerCase();
-    return [entry.title, entry.eco, entry.summary, ...(entry.tags ?? [])]
-      .join(" ")
-      .toLowerCase()
-      .includes(query);
-  });
+      const query = searchQuery.toLowerCase();
+      return [entry.title, entry.eco, entry.summary, ...(entry.tags ?? [])]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    })
+    .filter((entry) => {
+      if (solveFilter === "all") return true;
+      if (solveFilter === "solved") return isSolved(entry.id, TYPE_TUTORIAL);
+      if (solveFilter === "unsolved") return !isSolved(entry.id, TYPE_TUTORIAL);
+      return true;
+    });
+
+  const solvedCount = getSolvedCount(TYPE_TUTORIAL);
 
   if (phase === "list") {
     return (
@@ -343,10 +374,36 @@ const TrainingOpeningTutorialPanel = ({
             placeholder="Search tutorials..."
             className="w-full bg-muted/50 border border-border rounded-md px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50 transition-colors"
           />
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            The library is loaded from `/public/tutorial/*.json` so you can keep
-            adding curated lessons.
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              The library is loaded from `/public/tutorial/*.json` so you can
+              keep adding curated lessons.
+            </p>
+            <div className="flex gap-1 shrink-0">
+              {[
+                { key: "all", label: "All" },
+                { key: "unsolved", label: "To Learn" },
+                { key: "solved", label: "Done" },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setSolveFilter(key)}
+                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors border ${
+                    solveFilter === key
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border/50 text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  {label}
+                  {key === "solved" && solvedCount > 0 && (
+                    <span className="ml-1 text-primary/60">
+                      ({solvedCount})
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="overflow-y-auto flex-1 px-2 py-2 space-y-1.5">
@@ -368,47 +425,53 @@ const TrainingOpeningTutorialPanel = ({
             </div>
           )}
 
-          {displayed.map((entry) => (
-            <button
-              key={entry.id}
-              onClick={() => openTutorial(entry)}
-              className="w-full text-left p-3 rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/5 transition-all group"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 space-y-1">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-mono text-primary/60">
-                      {entry.eco}
-                    </span>
-                    <p className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors truncate">
-                      {entry.title}
+          {displayed.map((entry) => {
+            const solved = isSolved(entry.id, TYPE_TUTORIAL);
+            return (
+              <button
+                key={entry.id}
+                onClick={() => openTutorial(entry)}
+                className="w-full text-left p-3 rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/5 transition-all group"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] font-mono text-primary/60">
+                        {entry.eco}
+                      </span>
+                      <p className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors truncate">
+                        {entry.title}
+                      </p>
+                      {solved && (
+                        <Check className="h-3 w-3 text-green-500 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">
+                      {entry.summary}
                     </p>
+                    <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-muted-foreground">
+                      <span className="rounded border border-border px-1.5 py-0.5">
+                        Play as {entry.side}
+                      </span>
+                      <span className="rounded border border-border px-1.5 py-0.5">
+                        {entry.stepCount} steps
+                      </span>
+                      <span className="rounded border border-border px-1.5 py-0.5 capitalize">
+                        {entry.difficulty}
+                      </span>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-muted-foreground line-clamp-2">
-                    {entry.summary}
-                  </p>
-                  <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-muted-foreground">
-                    <span className="rounded border border-border px-1.5 py-0.5">
-                      Play as {entry.side}
-                    </span>
-                    <span className="rounded border border-border px-1.5 py-0.5">
-                      {entry.stepCount} steps
-                    </span>
-                    <span className="rounded border border-border px-1.5 py-0.5 capitalize">
-                      {entry.difficulty}
-                    </span>
-                  </div>
+                  <Badge
+                    label={entry.category}
+                    className={
+                      CAT_STYLE[entry.category] ||
+                      "text-muted-foreground bg-muted/30 border-border"
+                    }
+                  />
                 </div>
-                <Badge
-                  label={entry.category}
-                  className={
-                    CAT_STYLE[entry.category] ||
-                    "text-muted-foreground bg-muted/30 border-border"
-                  }
-                />
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       </div>
     );

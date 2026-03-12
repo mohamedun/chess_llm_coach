@@ -1,6 +1,7 @@
 import { Chess } from "chess.js";
 import {
   Brain,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -16,10 +17,9 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  loadQuizByFile,
-  loadQuizCatalog,
-} from "@/lib/puzzle-quizzes";
+import { loadQuizByFile, loadQuizCatalog } from "@/lib/puzzle-quizzes";
+import { TYPE_QUIZ } from "@/lib/progress";
+import useProgressStore from "@/store/use-progress-store";
 
 const THEME_GUIDE = {
   checkmate: {
@@ -82,6 +82,7 @@ const TrainingPuzzleQuizPanel = ({
   const [phase, setPhase] = useState("list");
   const [searchQuery, setSearchQuery] = useState("");
   const [difficultyFilter, setDifficultyFilter] = useState("all");
+  const [solveFilter, setSolveFilter] = useState("all");
   const [catalog, setCatalog] = useState([]);
   const [catalogState, setCatalogState] = useState("loading");
   const [catalogError, setCatalogError] = useState("");
@@ -94,9 +95,21 @@ const TrainingPuzzleQuizPanel = ({
   const [arrows, setArrows] = useState([]);
   const [wrongCount, setWrongCount] = useState(0);
 
+  const { fetchProgress, isSolved, solveItem, getSolvedCount } =
+    useProgressStore();
+  const [progressLoaded, setProgressLoaded] = useState(false);
+
   const chessReference = useRef(null);
   const orientationReference = useRef("white");
   const engineTimerReference = useRef(null);
+
+  useEffect(() => {
+    const loadProgress = async () => {
+      await fetchProgress();
+      setProgressLoaded(true);
+    };
+    loadProgress();
+  }, [fetchProgress]);
 
   useEffect(() => {
     let cancelled = false;
@@ -216,6 +229,9 @@ const TrainingPuzzleQuizPanel = ({
               type: "success",
               text: "Puzzle solved. You completed the full tactical line.",
             });
+            if (selectedEntry?.id) {
+              solveItem(selectedEntry.id, TYPE_QUIZ);
+            }
             return;
           }
 
@@ -263,6 +279,9 @@ const TrainingPuzzleQuizPanel = ({
               type: "success",
               text: "Puzzle solved. You found the complete winning line.",
             });
+            if (selectedEntry?.id) {
+              solveItem(selectedEntry.id, TYPE_QUIZ);
+            }
           } else {
             setStatus("correct-step");
             playEngineStep(nextStep);
@@ -287,7 +306,15 @@ const TrainingPuzzleQuizPanel = ({
         return false;
       }
     },
-    [guide.hint, playEngineStep, pushBoardState, selectedQuiz, solutionStep, status, wrongCount],
+    [
+      guide.hint,
+      playEngineStep,
+      pushBoardState,
+      selectedQuiz,
+      solutionStep,
+      status,
+      wrongCount,
+    ],
   );
 
   useEffect(() => {
@@ -325,11 +352,13 @@ const TrainingPuzzleQuizPanel = ({
   const handleReveal = () => {
     if (!selectedQuiz || !chessReference.current) return;
 
-    const revealArrows = selectedQuiz.solution.slice(solutionStep).map((uci, index) => ({
-      startSquare: uci.slice(0, 2),
-      endSquare: uci.slice(2, 4),
-      color: index % 2 === 0 ? "#22c55e" : "#ef4444",
-    }));
+    const revealArrows = selectedQuiz.solution
+      .slice(solutionStep)
+      .map((uci, index) => ({
+        startSquare: uci.slice(0, 2),
+        endSquare: uci.slice(2, 4),
+        color: index % 2 === 0 ? "#22c55e" : "#ef4444",
+      }));
 
     setStatus("revealed");
     setArrows(revealArrows);
@@ -348,7 +377,9 @@ const TrainingPuzzleQuizPanel = ({
 
   const handleNextQuiz = () => {
     if (!catalog.length || !selectedEntry) return;
-    const currentIndex = catalog.findIndex((entry) => entry.id === selectedEntry.id);
+    const currentIndex = catalog.findIndex(
+      (entry) => entry.id === selectedEntry.id,
+    );
     const nextEntry = catalog[(currentIndex + 1) % catalog.length];
     openQuiz(nextEntry);
   };
@@ -377,10 +408,20 @@ const TrainingPuzzleQuizPanel = ({
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch =
       !query ||
-      [entry.title, entry.description, entry.theme].join(" ").toLowerCase().includes(query);
+      [entry.title, entry.description, entry.theme]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
 
-    return matchesDifficulty && matchesSearch;
+    const matchesSolve =
+      solveFilter === "all" ||
+      (solveFilter === "solved" && isSolved(entry.id, TYPE_QUIZ)) ||
+      (solveFilter === "unsolved" && !isSolved(entry.id, TYPE_QUIZ));
+
+    return matchesDifficulty && matchesSearch && matchesSolve;
   });
+
+  const solvedCount = getSolvedCount(TYPE_QUIZ);
 
   if (phase === "list") {
     return (
@@ -421,9 +462,36 @@ const TrainingPuzzleQuizPanel = ({
               </button>
             ))}
           </div>
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Quizzes are loaded from `/public/quiz/*.json` so you can add new tactical sets without touching the React code.
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Quizzes are loaded from `/public/quiz/*.json` so you can add new
+              tactical sets without touching the React code.
+            </p>
+            <div className="flex gap-1 shrink-0">
+              {[
+                { key: "all", label: "All" },
+                { key: "unsolved", label: "To Solve" },
+                { key: "solved", label: "Done" },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setSolveFilter(key)}
+                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors border ${
+                    solveFilter === key
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border/50 text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  {label}
+                  {key === "solved" && solvedCount > 0 && (
+                    <span className="ml-1 text-primary/60">
+                      ({solvedCount})
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="overflow-y-auto flex-1 px-2 py-2 space-y-1.5">
@@ -445,39 +513,45 @@ const TrainingPuzzleQuizPanel = ({
             </div>
           )}
 
-          {displayed.map((entry) => (
-            <button
-              key={entry.id}
-              onClick={() => openQuiz(entry)}
-              className="w-full text-left p-3 rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/5 transition-all group"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 space-y-1">
-                  <p className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors truncate">
-                    {entry.title}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground line-clamp-2">
-                    {entry.description}
-                  </p>
-                  <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-muted-foreground">
-                    <span className="rounded border border-border px-1.5 py-0.5 capitalize">
-                      {entry.turn} to move
-                    </span>
-                    <span className="rounded border border-border px-1.5 py-0.5">
-                      {entry.moveCount} ply
-                    </span>
-                    <span className="rounded border border-border px-1.5 py-0.5 capitalize">
-                      {entry.theme}
-                    </span>
+          {displayed.map((entry) => {
+            const solved = isSolved(entry.id, TYPE_QUIZ);
+            return (
+              <button
+                key={entry.id}
+                onClick={() => openQuiz(entry)}
+                className="w-full text-left p-3 rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/5 transition-all group"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors truncate">
+                      {entry.title}
+                      {solved && (
+                        <Check className="h-3 w-3 text-green-500 inline ml-1" />
+                      )}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">
+                      {entry.description}
+                    </p>
+                    <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-muted-foreground">
+                      <span className="rounded border border-border px-1.5 py-0.5 capitalize">
+                        {entry.turn} to move
+                      </span>
+                      <span className="rounded border border-border px-1.5 py-0.5">
+                        {entry.moveCount} ply
+                      </span>
+                      <span className="rounded border border-border px-1.5 py-0.5 capitalize">
+                        {entry.theme}
+                      </span>
+                    </div>
                   </div>
+                  <Badge
+                    label={entry.difficulty}
+                    className={DIFF_STYLE[entry.difficulty]}
+                  />
                 </div>
-                <Badge
-                  label={entry.difficulty}
-                  className={DIFF_STYLE[entry.difficulty]}
-                />
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       </div>
     );
@@ -497,7 +571,9 @@ const TrainingPuzzleQuizPanel = ({
         </button>
         <Puzzle className="h-4 w-4 text-primary shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold truncate">{selectedQuiz?.title}</p>
+          <p className="text-xs font-semibold truncate">
+            {selectedQuiz?.title}
+          </p>
           <p className="text-[10px] text-muted-foreground capitalize">
             {selectedQuiz?.theme} · {selectedEntry?.turn} to move
           </p>
@@ -576,27 +652,29 @@ const TrainingPuzzleQuizPanel = ({
           )}
         </div>
 
-        {(status === "revealed" || status === "solved") && selectedQuiz?.solution && (
-          <div className="rounded-xl p-3 bg-muted/30 border border-border space-y-1.5">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-              Solution Line
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {selectedQuiz.solution.map((uci, index) => (
-                <span
-                  key={`${uci}-${index}`}
-                  className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${
-                    index % 2 === 0
-                      ? "bg-primary/10 border-primary/30 text-primary"
-                      : "bg-red-500/10 border-red-500/30 text-red-400"
-                  }`}
-                >
-                  {uci.slice(0, 2).toUpperCase()}→{uci.slice(2, 4).toUpperCase()}
-                </span>
-              ))}
+        {(status === "revealed" || status === "solved") &&
+          selectedQuiz?.solution && (
+            <div className="rounded-xl p-3 bg-muted/30 border border-border space-y-1.5">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                Solution Line
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {selectedQuiz.solution.map((uci, index) => (
+                  <span
+                    key={`${uci}-${index}`}
+                    className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${
+                      index % 2 === 0
+                        ? "bg-primary/10 border-primary/30 text-primary"
+                        : "bg-red-500/10 border-red-500/30 text-red-400"
+                    }`}
+                  >
+                    {uci.slice(0, 2).toUpperCase()}→
+                    {uci.slice(2, 4).toUpperCase()}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {status === "solved" && (
           <div className="rounded-xl p-3 bg-emerald-950/30 border border-emerald-500/30 space-y-1.5">

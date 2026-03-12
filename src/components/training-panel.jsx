@@ -11,6 +11,7 @@ import {
   SkipForward,
   RotateCcw,
   CheckCircle2,
+  Check,
   XCircle,
   ChevronRight,
   Dumbbell,
@@ -29,6 +30,8 @@ import { Button } from "@/components/ui/button";
 import { ENDGAMES } from "@/data/endgames";
 import { getPuzzleSession, PUZZLES } from "@/data/puzzles";
 import { OPENINGS } from "@/lib/openings";
+import { TYPE_PUZZLE, TYPE_OPENING } from "@/lib/progress";
+import useProgressStore from "@/store/use-progress-store";
 
 // ── Theme guidance messages ───────────────────────────────────────────────
 const THEME_GUIDE = {
@@ -126,8 +129,13 @@ const StepDots = ({ total, current }) => (
 const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
   const [phase, setPhase] = useState("list"); // "list" | "training"
   const [diffFilter, setDiffFilter] = useState("all");
+  const [solveFilter, setSolveFilter] = useState("all");
   const [puzzles] = useState(() => getPuzzleSession(null));
   const [puzzleIndex, setPuzzleIndex] = useState(0);
+
+  const { fetchProgress, isSolved, solveItem, getSolvedCount } =
+    useProgressStore();
+  const [progressLoaded, setProgressLoaded] = useState(false);
 
   const chessReference = useRef(null);
   const puzzleOrientationReference = useRef("white");
@@ -138,6 +146,14 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
   const [arrows, setArrows] = useState([]);
   const [wrongCount, setWrongCount] = useState(0);
   const engineTimerReference = useRef(null);
+
+  useEffect(() => {
+    const loadProgress = async () => {
+      await fetchProgress();
+      setProgressLoaded(true);
+    };
+    loadProgress();
+  }, [fetchProgress]);
 
   const puzzle = phase === "training" ? puzzles[puzzleIndex] : null;
   // memoized guide object to avoid changing reference on every render
@@ -195,6 +211,9 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
               type: "success",
               text: "🎉 Puzzle solved! Well done! You found the winning combination.",
             });
+            if (puzzle?.id) {
+              solveItem(puzzle.id, TYPE_PUZZLE);
+            }
             onBoardUpdate({
               fen: newFen,
               orientation: puzzleOrientationReference.current,
@@ -256,6 +275,9 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
               type: "success",
               text: "🎉 Puzzle solved! Excellent work! You found the winning combination.",
             });
+            if (puzzle?.id) {
+              solveItem(puzzle.id, TYPE_PUZZLE);
+            }
             onBoardUpdate({
               fen: newFen,
               orientation: puzzleOrientationReference.current,
@@ -394,9 +416,16 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
     setPhase("list");
   };
 
-  const filtered = puzzles.filter(
-    (p) => diffFilter === "all" || p.difficulty === diffFilter,
-  );
+  const filtered = puzzles
+    .filter((p) => diffFilter === "all" || p.difficulty === diffFilter)
+    .filter((p) => {
+      if (solveFilter === "all") return true;
+      if (solveFilter === "solved") return isSolved(p.id, TYPE_PUZZLE);
+      if (solveFilter === "unsolved") return !isSolved(p.id, TYPE_PUZZLE);
+      return true;
+    });
+
+  const solvedCount = getSolvedCount(TYPE_PUZZLE);
 
   // ── LIST PHASE ────────────────────────────────────────────────────────────
   if (phase === "list") {
@@ -418,25 +447,50 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
 
         {/* Filters */}
         <div className="flex gap-1.5 px-3 py-2 border-b border-border shrink-0">
-          {["all", "easy", "medium", "hard"].map((d) => (
-            <button
-              key={d}
-              onClick={() => setDiffFilter(d)}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium capitalize transition-colors border ${
-                diffFilter === d
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border/50 text-muted-foreground hover:bg-muted/50"
-              }`}
-            >
-              {d}
-            </button>
-          ))}
+          <div className="flex gap-1">
+            {["all", "easy", "medium", "hard"].map((d) => (
+              <button
+                key={d}
+                onClick={() => setDiffFilter(d)}
+                className={`px-2 py-0.5 rounded text-[11px] font-medium capitalize transition-colors border ${
+                  diffFilter === d
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border/50 text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto flex gap-1">
+            {[
+              { key: "all", label: "All" },
+              { key: "unsolved", label: "To Solve" },
+              { key: "solved", label: "Done" },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setSolveFilter(key)}
+                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors border ${
+                  solveFilter === key
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border/50 text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                {label}
+                {key === "solved" && solvedCount > 0 && (
+                  <span className="ml-1 text-primary/60">({solvedCount})</span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* List */}
         <div className="overflow-y-auto flex-1 px-2 py-2 space-y-1.5">
           {filtered.map((p, idx) => {
             const realIndex = puzzles.indexOf(p);
+            const solved = isSolved(p.id, TYPE_PUZZLE);
             return (
               <button
                 key={p.id}
@@ -447,6 +501,9 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors truncate">
                       {p.title}
+                      {solved && (
+                        <Check className="h-3 w-3 text-green-500 inline ml-1" />
+                      )}
                     </p>
                     <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">
                       {p.description}
@@ -662,8 +719,13 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
   const [phase, setPhase] = useState("list"); // "list" | "side" | "training"
   const [catFilter, setCatFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [solveFilter, setSolveFilter] = useState("all");
   const [selectedOpening, setSelectedOpening] = useState(null);
   const [playerSide, setPlayerSide] = useState("w");
+
+  const { fetchProgress, isSolved, solveItem, getSolvedCount } =
+    useProgressStore();
+  const [progressLoaded, setProgressLoaded] = useState(false);
 
   const chessReference = useRef(null);
   const [fen, setFen] = useState("");
@@ -672,6 +734,14 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
   const [status, setStatus] = useState("idle"); // idle | wrong | complete
   const [feedback, setFeedback] = useState(null);
   const opponentTimerReference = useRef(null);
+
+  useEffect(() => {
+    const loadProgress = async () => {
+      await fetchProgress();
+      setProgressLoaded(true);
+    };
+    loadProgress();
+  }, [fetchProgress]);
 
   // ── Parse moves from space-separated SAN string ───────────────────────────
   const parseMoves = (s) => s.trim().split(/\s+/);
@@ -699,6 +769,9 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
               type: "success",
               text: `🎉 Opening complete! You mastered ${selectedOpening?.name}. Great job!`,
             });
+            if (selectedOpening?.eco) {
+              solveItem(selectedOpening.eco, TYPE_OPENING);
+            }
             onBoardUpdate({
               fen: newFen,
               orientation: side === "w" ? "white" : "black",
@@ -793,6 +866,9 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
               type: "success",
               text: `🎉 Opening mastered! Excellent recall of ${selectedOpening?.name}.`,
             });
+            if (selectedOpening?.eco) {
+              solveItem(selectedOpening.eco, TYPE_OPENING);
+            }
             onBoardUpdate({
               fen: newFen,
               orientation: playerSide === "w" ? "white" : "black",
@@ -885,7 +961,14 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
       (!searchQuery ||
         o.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         o.eco.toLowerCase().includes(searchQuery.toLowerCase())),
-  );
+  ).filter((o) => {
+    if (solveFilter === "all") return true;
+    if (solveFilter === "solved") return isSolved(o.eco, TYPE_OPENING);
+    if (solveFilter === "unsolved") return !isSolved(o.eco, TYPE_OPENING);
+    return true;
+  });
+
+  const solvedCount = getSolvedCount(TYPE_OPENING);
 
   // ── SIDE SELECTION ────────────────────────────────────────────────────────
   if (phase === "side") {
@@ -968,55 +1051,85 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
 
         {/* Category filters */}
         <div className="flex gap-1.5 px-3 py-2 border-b border-border shrink-0 overflow-x-auto">
-          {["all", "open", "semi-open", "closed", "flank"].map((c) => (
-            <button
-              key={c}
-              onClick={() => setCatFilter(c)}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium capitalize transition-colors border whitespace-nowrap shrink-0 ${
-                catFilter === c
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border/50 text-muted-foreground hover:bg-muted/50"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
+          <div className="flex gap-1">
+            {["all", "open", "semi-open", "closed", "flank"].map((c) => (
+              <button
+                key={c}
+                onClick={() => setCatFilter(c)}
+                className={`px-2 py-0.5 rounded text-[11px] font-medium capitalize transition-colors border whitespace-nowrap shrink-0 ${
+                  catFilter === c
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border/50 text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto flex gap-1 shrink-0">
+            {[
+              { key: "all", label: "All" },
+              { key: "unsolved", label: "To Learn" },
+              { key: "solved", label: "Done" },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setSolveFilter(key)}
+                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors border ${
+                  solveFilter === key
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border/50 text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                {label}
+                {key === "solved" && solvedCount > 0 && (
+                  <span className="ml-1 text-primary/60">({solvedCount})</span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="overflow-y-auto flex-1 px-2 py-2 space-y-1.5">
-          {displayed.map((o) => (
-            <button
-              key={`${o.eco}-${o.name}`}
-              onClick={() => {
-                setSelectedOpening(o);
-                setPhase("side");
-              }}
-              className="w-full text-left p-2.5 rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/5 transition-all group"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <span className="text-[10px] font-mono text-primary/60">
-                      {o.eco}
-                    </span>
-                    <p className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors truncate">
-                      {o.name}
+          {displayed.map((o) => {
+            const solved = isSolved(o.eco, TYPE_OPENING);
+            return (
+              <button
+                key={`${o.eco}-${o.name}`}
+                onClick={() => {
+                  setSelectedOpening(o);
+                  setPhase("side");
+                }}
+                className="w-full text-left p-2.5 rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/5 transition-all group"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="text-[10px] font-mono text-primary/60">
+                        {o.eco}
+                      </span>
+                      <p className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors truncate">
+                        {o.name}
+                        {solved && (
+                          <Check className="h-3 w-3 text-green-500 inline ml-1" />
+                        )}
+                      </p>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-1">
+                      {o.idea}
                     </p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground line-clamp-1">
-                    {o.idea}
-                  </p>
+                  <Badge
+                    label={o.category}
+                    className={
+                      CAT_STYLE[o.category] ||
+                      "text-muted-foreground bg-muted/30 border-border"
+                    }
+                  />
                 </div>
-                <Badge
-                  label={o.category}
-                  className={
-                    CAT_STYLE[o.category] ||
-                    "text-muted-foreground bg-muted/30 border-border"
-                  }
-                />
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       </div>
     );

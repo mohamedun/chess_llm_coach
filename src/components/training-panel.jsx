@@ -21,12 +21,21 @@ import {
   ArrowRight,
   Star,
   Trophy,
+  Bot,
+  Send,
+  Loader2,
+  BrainCircuit,
+  Sparkles,
+  X,
+  Trash2,
 } from "lucide-react";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import ReactMarkdown from "react-markdown";
 
 import TrainingOpeningTutorialPanel from "@/components/training-opening-tutorial-panel";
 import TrainingPuzzleQuizPanel from "@/components/training-puzzle-quiz-panel";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ENDGAMES } from "@/data/endgames";
 import { getPuzzleSession, PUZZLES } from "@/data/puzzles";
 import { OPENINGS } from "@/lib/openings";
@@ -101,6 +110,79 @@ const Badge = ({ label, className }) => (
     {label}
   </span>
 );
+
+// ── AI markdown components ─────────────────────────────────────────────────
+const AI_MARKDOWN_COMPONENTS = {
+  h1: ({ children, ...props }) => (
+    <h1 className="text-base font-semibold" {...props}>
+      {children}
+    </h1>
+  ),
+  h2: ({ children, ...props }) => (
+    <h2 className="mt-3 text-sm font-semibold" {...props}>
+      {children}
+    </h2>
+  ),
+  h3: ({ children, ...props }) => (
+    <h3
+      className="mt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+      {...props}
+    >
+      {children}
+    </h3>
+  ),
+  p: ({ children, ...props }) => (
+    <p className="mb-2 last:mb-0" {...props}>
+      {children}
+    </p>
+  ),
+  ul: ({ children, ...props }) => (
+    <ul className="mb-2 list-disc pl-5 space-y-1 last:mb-0" {...props}>
+      {children}
+    </ul>
+  ),
+  ol: ({ children, ...props }) => (
+    <ol className="mb-2 list-decimal pl-5 space-y-1 last:mb-0" {...props}>
+      {children}
+    </ol>
+  ),
+  li: ({ children, ...props }) => (
+    <li className="leading-relaxed" {...props}>
+      {children}
+    </li>
+  ),
+  code: ({ inline, className, children, ...props }) =>
+    inline ? (
+      <code
+        className="rounded bg-black/15 px-1 py-0.5 font-mono text-[0.92em]"
+        {...props}
+      >
+        {children}
+      </code>
+    ) : (
+      <code
+        className={`block overflow-x-auto rounded-md bg-black/20 p-3 font-mono text-xs ${className || ""}`}
+        {...props}
+      >
+        {children}
+      </code>
+    ),
+  strong: ({ children, ...props }) => (
+    <strong className="font-semibold" {...props}>
+      {children}
+    </strong>
+  ),
+  a: ({ children, ...props }) => (
+    <a
+      className="text-cyan-300 underline underline-offset-2"
+      rel="noreferrer"
+      target="_blank"
+      {...props}
+    >
+      {children}
+    </a>
+  ),
+};
 
 // ── Step progress dots ─────────────────────────────────────────────────────
 const StepDots = ({ total, current }) => (
@@ -1290,6 +1372,23 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
             New Opening
           </Button>
         </div>
+        <Button
+          size="sm"
+          className="w-full text-xs h-7 bg-teal-600 hover:bg-teal-700"
+          onClick={() => {
+            if (onAskAI) {
+              const moveSan = "";
+              const currentFen = "";
+              onAskAI({
+                opponentMoveSan: moveSan,
+                primaryThreat: { name: "Current position" },
+              });
+            }
+          }}
+        >
+          <Bot className="h-3 w-3 mr-1" />
+          Ask AI for Help
+        </Button>
       </div>
     </div>
   );
@@ -1681,6 +1780,147 @@ const getEndgameTip = (scenario, game, moveCount) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ── AI CHAT PANEL FOR TRAINING MODE ───────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+const formatCompactTokens = (value) => {
+  if (!value) return "0";
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}k`;
+  }
+  return `${value}`;
+};
+
+const TrainingAIChat = ({
+  messages,
+  onSendMessage,
+  isLoading,
+  tokenStats,
+  onClearChat,
+}) => {
+  const [input, setInput] = useState("");
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleSend = () => {
+    const text = input.trim();
+    if (!text) return;
+    onSendMessage(text);
+    setInput("");
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const chatMessages = messages.filter((m) => {
+    return m.role === "user" || m.role === "assistant";
+  });
+
+  const contextLabel = tokenStats
+    ? `${formatCompactTokens(tokenStats.activeTokens)} / ${formatCompactTokens(tokenStats.targetTokens)}`
+    : null;
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Messages area */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {chatMessages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
+            <Bot className="h-10 w-10 mb-3 opacity-30" />
+            <p className="text-sm">AI Coach</p>
+            <p className="text-xs mt-1">
+              Need help? Ask me about the current position!
+            </p>
+          </div>
+        )}
+
+        {chatMessages.map((msg, index) => (
+          <div key={index} className={`flex gap-2.5 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+            {msg.role !== "user" && (
+              <div className="shrink-0 h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center">
+                <Bot className="h-3.5 w-3.5 text-primary" />
+              </div>
+            )}
+            <div
+              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed whitespace-pre-line ${
+                msg.role === "user"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground"
+              }`}
+            >
+              {msg.role === "assistant" ? (
+                <div className="prose prose-invert max-w-none prose-p:my-0 prose-headings:my-0 prose-li:my-0 text-sm">
+                  <ReactMarkdown components={AI_MARKDOWN_COMPONENTS} skipHtml>
+                    {msg.content}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                msg.content
+              )}
+            </div>
+            {msg.role === "user" && (
+              <div className="shrink-0 h-7 w-7 rounded-full bg-muted flex items-center justify-center">
+                <span className="text-xs">You</span>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {isLoading && (
+          <div className="flex gap-2.5 justify-start">
+            <div className="shrink-0 h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center">
+              <Bot className="h-3.5 w-3.5 text-primary" />
+            </div>
+            <div className="bg-secondary rounded-lg px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Thinking…
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input area */}
+      <div className="p-3 border-t border-border">
+        <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-secondary/50 px-2 py-0.5">
+              <BrainCircuit className="h-3 w-3" />
+              <span>Context {contextLabel || "0 / 6k"}</span>
+            </span>
+          </div>
+          <span>{tokenStats?.isApproximate ? "approx" : "exact"}</span>
+        </div>
+        <div className="flex gap-2">
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask AI for help..."
+            disabled={isLoading}
+            className="flex-1"
+          />
+          <Button
+            size="icon"
+            onClick={handleSend}
+            disabled={isLoading || !input.trim()}
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ── TRAINING MODE SELECTOR ────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 const MODULES = [
@@ -1719,8 +1959,22 @@ const MODULES = [
 export default function TrainingPanel({
   onBoardUpdate,
   onRegisterMoveHandler,
+  messages = [],
+  onSendMessage,
+  isLoading = false,
+  onAskAI,
+  onLearnWithAI,
+  tokenStats,
+  setMessages,
 }) {
   const [activeModule, setActiveModule] = useState(null); // null | "puzzle" | "opening"
+  const [rightTab, setRightTab] = useState("training"); // "training" | "ai"
+
+  const handleClearChat = useCallback(() => {
+    if (setMessages) {
+      setMessages([]);
+    }
+  }, [setMessages]);
 
   const handleBack = () => {
     onRegisterMoveHandler(null);
@@ -1733,92 +1987,217 @@ export default function TrainingPanel({
     setActiveModule(null);
   };
 
-  // ── Module selector ────────────────────────────────────────────────────────
-  if (!activeModule) {
-    return (
-      <div className="flex flex-col h-full border-l border-border bg-card animate-in fade-in slide-in-from-left-2 duration-200">
-        {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
-          <Dumbbell className="h-4 w-4 text-primary" />
-          <span className="text-sm font-semibold">Training Mode</span>
-          <span className="ml-auto text-[10px] text-primary bg-primary/10 border border-primary/20 rounded-full px-2 py-0.5 font-medium uppercase tracking-wide">
-            Learning On
-          </span>
-        </div>
-
-        {/* Intro */}
-        <div className="px-4 py-3 border-b border-border/50 shrink-0">
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Select a training module to load positions on the board. Each module
-            guides you step-by-step with explanations and feedback.
-          </p>
-        </div>
-
-        {/* Module cards */}
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
-          {MODULES.map((module_) => {
-            const Icon = module_.icon;
-            return (
-              <button
-                key={module_.id}
-                onClick={() => setActiveModule(module_.id)}
-                className={`w-full text-left p-4 rounded-xl border transition-all ${module_.border} ${module_.bg} hover:scale-[1.01] group`}
-              >
-                <div className="flex items-start gap-3">
-                  <div
-                    className={`mt-0.5 p-2 rounded-lg ${module_.bg} border border-white/10`}
-                  >
-                    <Icon className={`h-5 w-5 ${module_.color}`} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className={`text-sm font-semibold ${module_.color}`}>
-                        {module_.label}
-                      </p>
-                      <span className="text-[10px] text-muted-foreground font-mono shrink-0">
-                        {module_.count}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                      {module_.desc}
-                    </p>
-                  </div>
-                  <ChevronRight
-                    className={`h-4 w-4 ${module_.color} opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-1`}
-                  />
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Footer hint */}
-        <div className="px-4 py-3 border-t border-border shrink-0">
-          <div className="flex items-start gap-2 text-[11px] text-muted-foreground">
-            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary/60" />
-            <p>
-              Turn off <span className="text-primary">Learning</span> in the top
-              bar to switch back to Engine analysis and AI coach.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const sharedProperties = {
     onBoardUpdate,
     onRegisterMoveHandler,
     onBack: handleBack,
+    onAskAI,
   };
 
+  const tabs = [
+    { id: "training", icon: Dumbbell, label: "Training" },
+    { id: "ai", icon: Bot, label: "AI Coach" },
+  ];
+
+  // If no training module is selected, show module selector
+  if (!activeModule) {
+    return (
+      <div className="flex flex-col h-full border-l border-border bg-card animate-in fade-in slide-in-from-left-2 duration-200">
+        {/* Tab bar */}
+        <div className="flex items-center border-b border-border shrink-0">
+          <div className="flex flex-1">
+            {tabs.map(({ id, icon: Icon, label }) => {
+              const isActive = rightTab === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setRightTab(id)}
+                  className={`flex items-center gap-1.5 px-3 py-3 text-sm font-medium transition-colors border-b-2 flex-1 justify-center ${
+                    isActive
+                      ? "border-primary text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {rightTab === "ai" ? (
+          <div className="flex flex-col h-full">
+            {/* Header with back button */}
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
+              <button
+                onClick={() => setRightTab("training")}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <Bot className="h-4 w-4 text-primary shrink-0" />
+              <span className="text-sm font-semibold flex-1">AI Coach</span>
+              {handleClearChat && messages.length > 0 && (
+                <button
+                  onClick={handleClearChat}
+                  className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-muted"
+                  title="Clear chat"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <TrainingAIChat
+                messages={messages}
+                onSendMessage={onSendMessage}
+                isLoading={isLoading}
+                tokenStats={tokenStats}
+                onClearChat={handleClearChat}
+              />
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Header */}
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
+              <Dumbbell className="h-4 w-4 text-primary" />
+              <span className="text-sm font-semibold">Training Mode</span>
+              <span className="ml-auto text-[10px] text-primary bg-primary/10 border border-primary/20 rounded-full px-2 py-0.5 font-medium uppercase tracking-wide">
+                Learning On
+              </span>
+            </div>
+
+            {/* Intro */}
+            <div className="px-4 py-3 border-b border-border/50 shrink-0">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Select a training module to load positions on the board. Each module
+                guides you step-by-step with explanations and feedback.
+              </p>
+            </div>
+
+            {/* Module cards */}
+            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+              {MODULES.map((module_) => {
+                const Icon = module_.icon;
+                return (
+                  <button
+                    key={module_.id}
+                    onClick={() => setActiveModule(module_.id)}
+                    className={`w-full text-left p-4 rounded-xl border transition-all ${module_.border} ${module_.bg} hover:scale-[1.01] group`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={`mt-0.5 p-2 rounded-lg ${module_.bg} border border-white/10`}
+                      >
+                        <Icon className={`h-5 w-5 ${module_.color}`} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className={`text-sm font-semibold ${module_.color}`}>
+                            {module_.label}
+                          </p>
+                          <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                            {module_.count}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                          {module_.desc}
+                        </p>
+                      </div>
+                      <ChevronRight
+                        className={`h-4 w-4 ${module_.color} opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-1`}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Footer hint */}
+            <div className="px-4 py-3 border-t border-border shrink-0">
+              <div className="flex items-start gap-2 text-[11px] text-muted-foreground">
+                <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary/60" />
+                <p>
+                  Turn off <span className="text-primary">Learning</span> in the top
+                  bar to switch back to Engine analysis and AI coach.
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // When a training module is active, show tabs at the top
   return (
     <div className="flex flex-col h-full border-l border-border bg-card animate-in fade-in slide-in-from-right-2 duration-200">
-      {activeModule === "puzzle" && (
-        <TrainingPuzzleQuizPanel {...sharedProperties} />
-      )}
-      {activeModule === "opening" && (
-        <TrainingOpeningTutorialPanel {...sharedProperties} />
+      {/* Tab bar */}
+      <div className="flex items-center border-b border-border shrink-0">
+        <div className="flex flex-1">
+          {tabs.map(({ id, icon: Icon, label }) => {
+            const isActive = rightTab === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setRightTab(id)}
+                className={`flex items-center gap-1.5 px-3 py-3 text-sm font-medium transition-colors border-b-2 flex-1 justify-center ${
+                  isActive
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {rightTab === "ai" ? (
+        <div className="flex flex-col h-full">
+          {/* Header with back button */}
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
+            <button
+              onClick={() => setRightTab("training")}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <Bot className="h-4 w-4 text-primary shrink-0" />
+            <span className="text-sm font-semibold flex-1">AI Coach</span>
+            {handleClearChat && messages.length > 0 && (
+              <button
+                onClick={handleClearChat}
+                className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-muted"
+                title="Clear chat"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <TrainingAIChat
+              messages={messages}
+              onSendMessage={onSendMessage}
+              isLoading={isLoading}
+              tokenStats={tokenStats}
+              onClearChat={handleClearChat}
+            />
+          </div>
+        </div>
+      ) : (
+        <>
+          {activeModule === "puzzle" && (
+            <TrainingPuzzleQuizPanel {...sharedProperties} />
+          )}
+          {activeModule === "opening" && (
+            <TrainingOpeningTutorialPanel {...sharedProperties} />
+          )}
+        </>
       )}
     </div>
   );

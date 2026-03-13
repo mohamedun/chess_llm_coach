@@ -1013,6 +1013,13 @@ const App = () => {
             <TrainingPanel
               onBoardUpdate={handleTrainingBoardUpdate}
               onRegisterMoveHandler={handleRegisterMoveHandler}
+              messages={messages}
+              onSendMessage={handleSendMessage}
+              isLoading={isLoading}
+              onAskAI={handleAskAI}
+              onLearnWithAI={handleLearnWithAI}
+              tokenStats={tokenStats}
+              setMessages={setMessages}
             />
           ) : (
             <ChatPanel

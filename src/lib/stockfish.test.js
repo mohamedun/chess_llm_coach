@@ -117,8 +117,26 @@ describe("StockfishEngine", () => {
       "Stockfish init timed out",
     );
 
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(90_000);
 
     await rejectionExpectation;
+  });
+
+  it("can retry initialization after a timeout", async () => {
+    vi.stubGlobal("Worker", SilentWorker);
+
+    const engine = getStockfishEngine();
+    const firstInit = engine.init();
+    const timeoutExpectation = expect(firstInit).rejects.toThrow(
+      "Stockfish init timed out",
+    );
+
+    await vi.advanceTimersByTimeAsync(90_000);
+
+    await timeoutExpectation;
+
+    vi.stubGlobal("Worker", MockWorker);
+
+    await expect(engine.init()).resolves.toBe(engine);
   });
 });

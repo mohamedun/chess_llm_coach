@@ -14,13 +14,32 @@ import { withBaseUrl } from "./base-url.js";
 
 const SKILL = { easy: 3, medium: 12, hard: 20 };
 const MOVETIME = { easy: 150, medium: 800, hard: 2000 };
+const INIT_TIMEOUT_MS = 90_000;
 
 export class StockfishEngine {
   constructor() {
     this._worker = null;
     this._ready = false;
     this._initPromise = null;
+    this._initTimeoutId = null;
     this._pending = null;
+  }
+
+  _clearInitTimeout() {
+    if (this._initTimeoutId) {
+      clearTimeout(this._initTimeoutId);
+      this._initTimeoutId = null;
+    }
+  }
+
+  _resetInitState() {
+    this._clearInitTimeout();
+    if (this._worker) {
+      this._worker.terminate();
+      this._worker = null;
+    }
+    this._ready = false;
+    this._initPromise = null;
   }
 
   // ── Lazy init ─────────────────────────────────────────────────────────────
@@ -47,6 +66,7 @@ export class StockfishEngine {
             }
             if (line === "readyok") {
               this._ready = true;
+              this._clearInitTimeout();
               resolve(this);
               return;
             }
@@ -57,15 +77,20 @@ export class StockfishEngine {
 
         this._worker.onerror = (error) => {
           console.error("Stockfish worker error:", error);
+          this._resetInitState();
           reject(error);
         };
 
         this._worker.postMessage("uci");
 
-        setTimeout(() => {
-          if (!this._ready) reject(new Error("Stockfish init timed out"));
-        }, 30000);
+        this._initTimeoutId = setTimeout(() => {
+          if (!this._ready) {
+            this._resetInitState();
+            reject(new Error("Stockfish init timed out"));
+          }
+        }, INIT_TIMEOUT_MS);
       } catch (error) {
+        this._resetInitState();
         reject(error);
       }
     });
@@ -190,6 +215,7 @@ export class StockfishEngine {
 
   // ── Cleanup ───────────────────────────────────────────────────────────────
   destroy() {
+    this._clearInitTimeout();
     if (this._pending) {
       this._pending.reject(new Error("Engine destroyed"));
       this._pending = null;

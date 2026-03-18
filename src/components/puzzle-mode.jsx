@@ -281,9 +281,15 @@ export default function PuzzleMode({ onClose, initialDifficulty = null }) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in duration-200">
         <div className="bg-card border border-border rounded-2xl shadow-2xl p-6 max-w-md w-full space-y-3">
-          <p className="text-sm font-semibold text-foreground">Quiz load failed</p>
-          <p className="text-xs text-muted-foreground">{loadError || "No quizzes available."}</p>
-          <Button onClick={onClose} className="w-full">Close</Button>
+          <p className="text-sm font-semibold text-foreground">
+            Quiz load failed
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {loadError || "No quizzes available."}
+          </p>
+          <Button onClick={onClose} className="w-full">
+            Close
+          </Button>
         </div>
       </div>
     );

@@ -10,7 +10,7 @@
  * Analysis (full strength, depth-based, multi-PV).
  */
 
-import { withBaseUrl } from './base-url.js'
+import { withBaseUrl } from "./base-url.js";
 
 const SKILL = { easy: 3, medium: 12, hard: 20 };
 const MOVETIME = { easy: 150, medium: 800, hard: 2000 };
@@ -29,7 +29,11 @@ export class StockfishEngine {
 
     this._initPromise = new Promise((resolve, reject) => {
       try {
-        this._worker = new Worker(withBaseUrl('stockfish-18-lite-single.js'));
+        const workerUrl = withBaseUrl("stockfish-18-lite-single.js");
+        const wasmUrl = withBaseUrl("stockfish-18-lite-single.wasm");
+        this._worker = new Worker(
+          `${workerUrl}#${encodeURIComponent(wasmUrl)},worker`,
+        );
 
         this._worker.onmessage = (e) => {
           const line = typeof e === "string" ? e : e.data;
@@ -60,7 +64,7 @@ export class StockfishEngine {
 
         setTimeout(() => {
           if (!this._ready) reject(new Error("Stockfish init timed out"));
-        }, 10000);
+        }, 30000);
       } catch (error) {
         reject(error);
       }

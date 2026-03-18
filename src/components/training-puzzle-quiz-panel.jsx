@@ -17,8 +17,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { loadQuizByFile, loadQuizCatalog } from "@/lib/puzzle-quizzes";
 import { TYPE_QUIZ } from "@/lib/progress";
+import { loadQuizByFile, loadQuizCatalog } from "@/lib/puzzle-quizzes";
 import useProgressStore from "@/store/use-progress-store";
 
 const THEME_GUIDE = {
@@ -92,12 +92,11 @@ const TrainingPuzzleQuizPanel = ({
   const [status, setStatus] = useState("idle");
   const [feedback, setFeedback] = useState(null);
   const [quizError, setQuizError] = useState("");
-  const [arrows, setArrows] = useState([]);
+  const [, setArrows] = useState([]);
   const [wrongCount, setWrongCount] = useState(0);
 
   const { fetchProgress, isSolved, solveItem, getSolvedCount } =
     useProgressStore();
-  const [progressLoaded, setProgressLoaded] = useState(false);
 
   const chessReference = useRef(null);
   const orientationReference = useRef("white");
@@ -106,7 +105,6 @@ const TrainingPuzzleQuizPanel = ({
   useEffect(() => {
     const loadProgress = async () => {
       await fetchProgress();
-      setProgressLoaded(true);
     };
     loadProgress();
   }, [fetchProgress]);
@@ -245,7 +243,7 @@ const TrainingPuzzleQuizPanel = ({
         }
       }, 700);
     },
-    [guide.hint, pushBoardState, selectedQuiz],
+    [guide.hint, pushBoardState, selectedQuiz, selectedEntry?.id, solveItem],
   );
 
   const handleTrainingMove = useCallback(
@@ -314,6 +312,8 @@ const TrainingPuzzleQuizPanel = ({
       solutionStep,
       status,
       wrongCount,
+      selectedEntry?.id,
+      solveItem,
     ],
   );
 

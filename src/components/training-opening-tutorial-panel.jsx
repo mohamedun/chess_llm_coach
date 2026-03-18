@@ -75,7 +75,6 @@ const TrainingOpeningTutorialPanel = ({
 
   const { fetchProgress, isSolved, solveItem, getSolvedCount } =
     useProgressStore();
-  const [progressLoaded, setProgressLoaded] = useState(false);
 
   const chessReference = useRef(new Chess());
   const opponentTimerReference = useRef(null);
@@ -126,7 +125,6 @@ const TrainingOpeningTutorialPanel = ({
   useEffect(() => {
     const loadProgress = async () => {
       await fetchProgress();
-      setProgressLoaded(true);
     };
     loadProgress();
   }, [fetchProgress]);
@@ -234,7 +232,14 @@ const TrainingOpeningTutorialPanel = ({
     }, 900);
 
     return () => clearTimeout(opponentTimerReference.current);
-  }, [currentStep, currentStepIndex, phase, pushBoardState, selectedTutorial]);
+  }, [
+    currentStep,
+    currentStepIndex,
+    phase,
+    pushBoardState,
+    selectedTutorial,
+    solveItem,
+  ]);
 
   const handleTrainingMove = useCallback(
     (from, to) => {
@@ -301,7 +306,14 @@ const TrainingOpeningTutorialPanel = ({
         return false;
       }
     },
-    [currentStep, currentStepIndex, pushBoardState, selectedTutorial, status],
+    [
+      currentStep,
+      currentStepIndex,
+      pushBoardState,
+      selectedTutorial,
+      status,
+      solveItem,
+    ],
   );
 
   useEffect(() => {

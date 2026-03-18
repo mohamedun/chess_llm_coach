@@ -54,17 +54,6 @@ const progressGetAll = () =>
       }),
   );
 
-const progressDelete = (id) =>
-  openProgressDB().then(
-    (database) =>
-      new Promise((resolve, reject) => {
-        const tx = database.transaction(PROGRESS_STORE_NAME, "readwrite");
-        const request = tx.objectStore(PROGRESS_STORE_NAME).delete(id);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      }),
-  );
-
 // ── Public API ─────────────────────────────────────────────────────────────
 
 export const TYPE_TUTORIAL = "tutorial";

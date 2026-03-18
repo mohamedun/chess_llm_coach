@@ -54,12 +54,6 @@ export const useChessClock = ({
   const [paused, setPaused] = useState(false);
 
   const intervalReference = useRef(null);
-  const flaggedReference = useRef(null);
-  const pausedReference = useRef(false);
-
-  // Keep refs in sync
-  flaggedReference.current = flagged;
-  pausedReference.current = paused;
 
   const shouldTick =
     enabled && !isGameOver && !isReviewMode && !flagged && !paused;

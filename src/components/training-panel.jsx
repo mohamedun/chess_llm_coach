@@ -113,71 +113,71 @@ const Badge = ({ label, className }) => (
 
 // ── AI markdown components ─────────────────────────────────────────────────
 const AI_MARKDOWN_COMPONENTS = {
-  h1: ({ children, ...props }) => (
-    <h1 className="text-base font-semibold" {...props}>
+  h1: ({ children, ...properties }) => (
+    <h1 className="text-base font-semibold" {...properties}>
       {children}
     </h1>
   ),
-  h2: ({ children, ...props }) => (
-    <h2 className="mt-3 text-sm font-semibold" {...props}>
+  h2: ({ children, ...properties }) => (
+    <h2 className="mt-3 text-sm font-semibold" {...properties}>
       {children}
     </h2>
   ),
-  h3: ({ children, ...props }) => (
+  h3: ({ children, ...properties }) => (
     <h3
       className="mt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-      {...props}
+      {...properties}
     >
       {children}
     </h3>
   ),
-  p: ({ children, ...props }) => (
-    <p className="mb-2 last:mb-0" {...props}>
+  p: ({ children, ...properties }) => (
+    <p className="mb-2 last:mb-0" {...properties}>
       {children}
     </p>
   ),
-  ul: ({ children, ...props }) => (
-    <ul className="mb-2 list-disc pl-5 space-y-1 last:mb-0" {...props}>
+  ul: ({ children, ...properties }) => (
+    <ul className="mb-2 list-disc pl-5 space-y-1 last:mb-0" {...properties}>
       {children}
     </ul>
   ),
-  ol: ({ children, ...props }) => (
-    <ol className="mb-2 list-decimal pl-5 space-y-1 last:mb-0" {...props}>
+  ol: ({ children, ...properties }) => (
+    <ol className="mb-2 list-decimal pl-5 space-y-1 last:mb-0" {...properties}>
       {children}
     </ol>
   ),
-  li: ({ children, ...props }) => (
-    <li className="leading-relaxed" {...props}>
+  li: ({ children, ...properties }) => (
+    <li className="leading-relaxed" {...properties}>
       {children}
     </li>
   ),
-  code: ({ inline, className, children, ...props }) =>
+  code: ({ inline, className, children, ...properties }) =>
     inline ? (
       <code
         className="rounded bg-black/15 px-1 py-0.5 font-mono text-[0.92em]"
-        {...props}
+        {...properties}
       >
         {children}
       </code>
     ) : (
       <code
         className={`block overflow-x-auto rounded-md bg-black/20 p-3 font-mono text-xs ${className || ""}`}
-        {...props}
+        {...properties}
       >
         {children}
       </code>
     ),
-  strong: ({ children, ...props }) => (
-    <strong className="font-semibold" {...props}>
+  strong: ({ children, ...properties }) => (
+    <strong className="font-semibold" {...properties}>
       {children}
     </strong>
   ),
-  a: ({ children, ...props }) => (
+  a: ({ children, ...properties }) => (
     <a
       className="text-cyan-300 underline underline-offset-2"
       rel="noreferrer"
       target="_blank"
-      {...props}
+      {...properties}
     >
       {children}
     </a>
@@ -217,7 +217,6 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
 
   const { fetchProgress, isSolved, solveItem, getSolvedCount } =
     useProgressStore();
-  const [progressLoaded, setProgressLoaded] = useState(false);
 
   const chessReference = useRef(null);
   const puzzleOrientationReference = useRef("white");
@@ -232,7 +231,6 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
   useEffect(() => {
     const loadProgress = async () => {
       await fetchProgress();
-      setProgressLoaded(true);
     };
     loadProgress();
   }, [fetchProgress]);
@@ -320,7 +318,7 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
         }
       }, 700);
     },
-    [puzzle, guide, onBoardUpdate],
+    [puzzle, guide, onBoardUpdate, solveItem],
   );
 
   // ── Training move handler ─────────────────────────────────────────────────
@@ -400,6 +398,7 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
       guide,
       playEngineStep,
       onBoardUpdate,
+      solveItem,
     ],
   );
 
@@ -797,7 +796,12 @@ const PuzzleTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
 /**
  *
  */
-const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
+const OpeningTrainer = ({
+  onBoardUpdate,
+  onRegisterMoveHandler,
+  onBack,
+  onAskAI,
+}) => {
   const [phase, setPhase] = useState("list"); // "list" | "side" | "training"
   const [catFilter, setCatFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -807,7 +811,6 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
 
   const { fetchProgress, isSolved, solveItem, getSolvedCount } =
     useProgressStore();
-  const [progressLoaded, setProgressLoaded] = useState(false);
 
   const chessReference = useRef(null);
   const [fen, setFen] = useState("");
@@ -820,7 +823,6 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
   useEffect(() => {
     const loadProgress = async () => {
       await fetchProgress();
-      setProgressLoaded(true);
     };
     loadProgress();
   }, [fetchProgress]);
@@ -883,7 +885,7 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
       }, 700);
     },
 
-    [selectedOpening, onBoardUpdate],
+    [selectedOpening, onBoardUpdate, solveItem],
   );
 
   // ── Start drill ────────────────────────────────────────────────────────────
@@ -1011,6 +1013,7 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
       selectedOpening,
       onBoardUpdate,
       playOpponentMove,
+      solveItem,
     ],
   );
 
@@ -1400,7 +1403,12 @@ const OpeningTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
 /**
  *
  */
-const EndgameTrainer = ({ onBoardUpdate, onRegisterMoveHandler, onBack }) => {
+const EndgameTrainer = ({
+  onBoardUpdate,
+  onRegisterMoveHandler,
+  onBack,
+  onAskAI,
+}) => {
   const [phase, setPhase] = useState("list"); // "list" | "training"
   const [catFilter, setCatFilter] = useState("all");
   const [selectedScenario, setSelectedScenario] = useState(null);
@@ -1798,10 +1806,10 @@ const TrainingAIChat = ({
   onClearChat,
 }) => {
   const [input, setInput] = useState("");
-  const messagesEndRef = useRef(null);
+  const messagesEndReference = useRef(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndReference.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const handleSend = () => {
@@ -1840,31 +1848,34 @@ const TrainingAIChat = ({
           </div>
         )}
 
-        {chatMessages.map((msg, index) => (
-          <div key={index} className={`flex gap-2.5 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            {msg.role !== "user" && (
+        {chatMessages.map((message, index) => (
+          <div
+            key={index}
+            className={`flex gap-2.5 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+          >
+            {message.role !== "user" && (
               <div className="shrink-0 h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center">
                 <Bot className="h-3.5 w-3.5 text-primary" />
               </div>
             )}
             <div
               className={`max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed whitespace-pre-line ${
-                msg.role === "user"
+                message.role === "user"
                   ? "bg-primary text-primary-foreground"
                   : "bg-secondary text-secondary-foreground"
               }`}
             >
-              {msg.role === "assistant" ? (
+              {message.role === "assistant" ? (
                 <div className="prose prose-invert max-w-none prose-p:my-0 prose-headings:my-0 prose-li:my-0 text-sm">
                   <ReactMarkdown components={AI_MARKDOWN_COMPONENTS} skipHtml>
-                    {msg.content}
+                    {message.content}
                   </ReactMarkdown>
                 </div>
               ) : (
-                msg.content
+                message.content
               )}
             </div>
-            {msg.role === "user" && (
+            {message.role === "user" && (
               <div className="shrink-0 h-7 w-7 rounded-full bg-muted flex items-center justify-center">
                 <span className="text-xs">You</span>
               </div>
@@ -1884,7 +1895,7 @@ const TrainingAIChat = ({
           </div>
         )}
 
-        <div ref={messagesEndRef} />
+        <div ref={messagesEndReference} />
       </div>
 
       {/* Input area */}
@@ -2072,8 +2083,8 @@ export default function TrainingPanel({
             {/* Intro */}
             <div className="px-4 py-3 border-b border-border/50 shrink-0">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Select a training module to load positions on the board. Each module
-                guides you step-by-step with explanations and feedback.
+                Select a training module to load positions on the board. Each
+                module guides you step-by-step with explanations and feedback.
               </p>
             </div>
 
@@ -2095,7 +2106,9 @@ export default function TrainingPanel({
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className={`text-sm font-semibold ${module_.color}`}>
+                          <p
+                            className={`text-sm font-semibold ${module_.color}`}
+                          >
                             {module_.label}
                           </p>
                           <span className="text-[10px] text-muted-foreground font-mono shrink-0">
@@ -2120,8 +2133,8 @@ export default function TrainingPanel({
               <div className="flex items-start gap-2 text-[11px] text-muted-foreground">
                 <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary/60" />
                 <p>
-                  Turn off <span className="text-primary">Learning</span> in the top
-                  bar to switch back to Engine analysis and AI coach.
+                  Turn off <span className="text-primary">Learning</span> in the
+                  top bar to switch back to Engine analysis and AI coach.
                 </p>
               </div>
             </div>

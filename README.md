@@ -251,6 +251,20 @@ npm run build
 npm run preview
 ```
 
+The production build is configured for GitHub Pages at `/chess/`, so the generated `dist` folder is ready to publish from this repository without extra path fixes.
+
+## GitHub Pages Deployment
+
+This repository includes a GitHub Actions workflow at [.github/workflows/deploy.yml](.github/workflows/deploy.yml) that deploys every push to `main`.
+
+To enable it in GitHub:
+
+1. Open repository settings.
+2. Go to Pages.
+3. Set the source to GitHub Actions.
+
+After the workflow finishes, the site will be published at your repository Pages URL.
+
 ---
 
 # 🧠 Tech Stack

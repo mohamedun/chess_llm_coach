@@ -1,6 +1,6 @@
 /**
  * Stockfish 18 UCI wrapper.
- * Loads the lite single-threaded WASM build served from /public.
+ * Loads the lite single-threaded WASM build from the app base path.
  *
  * Difficulty → Skill Level + movetime mapping:
  * easy   → Skill Level  3,  movetime  150 ms
@@ -9,6 +9,8 @@
  *
  * Analysis (full strength, depth-based, multi-PV).
  */
+
+import { withBaseUrl } from './base-url.js'
 
 const SKILL = { easy: 3, medium: 12, hard: 20 };
 const MOVETIME = { easy: 150, medium: 800, hard: 2000 };
@@ -27,7 +29,7 @@ export class StockfishEngine {
 
     this._initPromise = new Promise((resolve, reject) => {
       try {
-        this._worker = new Worker("/stockfish-18-lite-single.js");
+        this._worker = new Worker(withBaseUrl('stockfish-18-lite-single.js'));
 
         this._worker.onmessage = (e) => {
           const line = typeof e === "string" ? e : e.data;

@@ -1,4 +1,6 @@
-const TUTORIAL_INDEX_PATH = "/tutorial/index.json";
+import { withBaseUrl } from './base-url.js'
+
+const TUTORIAL_INDEX_PATH = withBaseUrl('tutorial/index.json')
 
 const VALID_ACTORS = new Set(["player", "opponent"]);
 
@@ -12,7 +14,7 @@ const normalizeFilePath = (file) => {
     throw new Error("Tutorial entry is missing a file path.");
   }
 
-  return file.startsWith("/") ? file : `/tutorial/${file}`;
+  return withBaseUrl(file.replace(/^\/+/, ""));
 };
 
 const normalizeArrow = (arrow) => ({
@@ -40,13 +42,13 @@ const normalizeStep = (step, index) => {
     hint: String(step?.hint ?? ""),
     arrows: Array.isArray(step?.arrows)
       ? step.arrows
-          .map(normalizeArrow)
-          .filter((arrow) => arrow.startSquare && arrow.endSquare)
+        .map(normalizeArrow)
+        .filter((arrow) => arrow.startSquare && arrow.endSquare)
       : [],
     focusSquares: Array.isArray(step?.focusSquares)
       ? step.focusSquares.filter(
-          (square) => typeof square === "string" && square.length === 2,
-        )
+        (square) => typeof square === "string" && square.length === 2,
+      )
       : [],
   };
 };
@@ -114,8 +116,8 @@ export const loadTutorialCatalog = async () => {
   const data = await readJson(TUTORIAL_INDEX_PATH);
   const items = Array.isArray(data?.items)
     ? data.items
-        .map(normalizeCatalogItem)
-        .filter((item) => item.kind === "tutorial")
+      .map(normalizeCatalogItem)
+      .filter((item) => item.kind === "tutorial")
     : [];
 
   return {

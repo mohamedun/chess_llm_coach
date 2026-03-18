@@ -1,4 +1,6 @@
-const QUIZ_INDEX_PATH = "/quiz/index.json";
+import { withBaseUrl } from './base-url.js'
+
+const QUIZ_INDEX_PATH = withBaseUrl('quiz/index.json')
 
 const normalizeUci = (move) => String(move ?? "").trim().toLowerCase();
 
@@ -7,7 +9,7 @@ const normalizeFilePath = (file) => {
         throw new Error("Quiz entry is missing a file path.");
     }
 
-    return file.startsWith("/") ? file : `/quiz/${file}`;
+    return withBaseUrl(file.replace(/^\/+/, ""));
 };
 
 const readJson = async (path) => {

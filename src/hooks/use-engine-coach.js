@@ -1,7 +1,10 @@
 import { Chess } from "chess.js";
 import { useRef, useCallback } from "react";
 
-import { getGMThoughtProcess } from "@/lib/ai";
+import {
+  getGMThoughtProcess,
+  isOpenAIChatCandidateModel,
+} from "@/lib/ai";
 import { analyzeFullGame } from "@/lib/analyzer";
 import {
   buildAnalysisMessage,
@@ -455,8 +458,10 @@ const useEngineCoach = ({
         }));
 
         const apiKey = localStorage.getItem("chess-coach-api-key") || "";
-        const model =
-          localStorage.getItem("chess-coach-model") || "gpt-4o-mini";
+        const storedModel = localStorage.getItem("chess-coach-model") || "";
+        const model = isOpenAIChatCandidateModel(storedModel)
+          ? storedModel
+          : "";
         const elo = Number.parseInt(
           localStorage.getItem("chess-coach-elo") || "1000",
           10,

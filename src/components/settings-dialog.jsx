@@ -10,14 +10,11 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  isOpenAIChatCandidateModel,
+  listOpenAIModels,
+} from "@/lib/ai";
 import { GEMINI_MODELS } from "@/lib/google-ai";
-
-const OPENAI_MODELS = [
-  { id: "gpt-4o-mini", label: "GPT-4o Mini" },
-  { id: "gpt-4o", label: "GPT-4o" },
-  { id: "gpt-4-turbo", label: "GPT-4 Turbo" },
-  { id: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
-];
 
 /**
  *
@@ -27,7 +24,10 @@ const SettingsDialog = ({ open, onOpenChange }) => {
   const [googleApiKey, setGoogleApiKey] = useState("");
   const [googleModel, setGoogleModel] = useState("gemini-2.5-flash");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
-  const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
+  const [openaiModel, setOpenaiModel] = useState("");
+  const [openaiModels, setOpenaiModels] = useState([]);
+  const [isLoadingOpenAIModels, setIsLoadingOpenAIModels] = useState(false);
+  const [openaiModelStatus, setOpenaiModelStatus] = useState("");
   const [elo, setElo] = useState("1000");
 
   useEffect(() => {
@@ -38,20 +38,91 @@ const SettingsDialog = ({ open, onOpenChange }) => {
       localStorage.getItem("chess-google-model") || "gemini-2.5-flash",
     );
     setOpenaiApiKey(localStorage.getItem("chess-coach-api-key") || "");
-    setOpenaiModel(localStorage.getItem("chess-coach-model") || "gpt-4o-mini");
+    setOpenaiModel(localStorage.getItem("chess-coach-model") || "");
     setElo(localStorage.getItem("chess-coach-elo") || "1000");
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const trimmedApiKey = openaiApiKey.trim();
+    const trimmedModel = openaiModel.trim();
+
+    if (!trimmedApiKey) {
+      setIsLoadingOpenAIModels(false);
+      setOpenaiModels(
+        isOpenAIChatCandidateModel(trimmedModel) ? [trimmedModel] : [],
+      );
+      setOpenaiModelStatus("Enter your OpenAI API key to load GPT models.");
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadModels = async () => {
+      setIsLoadingOpenAIModels(true);
+      setOpenaiModelStatus("Loading GPT models from OpenAI...");
+
+      try {
+        const models = await listOpenAIModels({ apiKey: trimmedApiKey });
+        if (isCancelled) return;
+
+        const nextModels =
+          trimmedModel && !models.includes(trimmedModel)
+            ? [trimmedModel, ...models]
+            : models;
+
+        setOpenaiModels(nextModels);
+
+        if (!trimmedModel || !nextModels.includes(trimmedModel)) {
+          setOpenaiModel(nextModels[0] || "");
+        }
+
+        setOpenaiModelStatus(
+          nextModels.length > 0 ? "" : "No GPT models are available for this key.",
+        );
+      } catch (error) {
+        if (isCancelled) return;
+        setOpenaiModels(
+          isOpenAIChatCandidateModel(trimmedModel) ? [trimmedModel] : [],
+        );
+        setOpenaiModelStatus(error.message || "Unable to load OpenAI models.");
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingOpenAIModels(false);
+        }
+      }
+    };
+
+    loadModels();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [open, openaiApiKey, openaiModel]);
 
   /**
    *
    */
   const handleSave = () => {
     const parsedElo = Math.max(100, Math.min(3000, parseInt(elo, 10) || 1000));
+    const trimmedOpenAIApiKey = openaiApiKey.trim();
+    const trimmedOpenAIModel = openaiModel.trim();
+
+    if (
+      provider === "openai" &&
+      trimmedOpenAIApiKey &&
+      !isOpenAIChatCandidateModel(trimmedOpenAIModel)
+    ) {
+      setOpenaiModelStatus("Choose a GPT model before saving.");
+      return;
+    }
+
     localStorage.setItem("chess-ai-provider", provider);
     localStorage.setItem("chess-google-api-key", googleApiKey);
     localStorage.setItem("chess-google-model", googleModel);
-    localStorage.setItem("chess-coach-api-key", openaiApiKey);
-    localStorage.setItem("chess-coach-model", openaiModel);
+    localStorage.setItem("chess-coach-api-key", trimmedOpenAIApiKey);
+    localStorage.setItem("chess-coach-model", trimmedOpenAIModel);
     localStorage.setItem("chess-coach-elo", String(parsedElo));
     onOpenChange(false);
   };
@@ -171,14 +242,27 @@ const SettingsDialog = ({ open, onOpenChange }) => {
                 <select
                   value={openaiModel}
                   onChange={(e) => setOpenaiModel(e.target.value)}
+                  disabled={isLoadingOpenAIModels || openaiModels.length === 0}
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
-                  {OPENAI_MODELS.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
+                  {openaiModels.length === 0 ? (
+                    <option value="">
+                      {isLoadingOpenAIModels
+                        ? "Loading GPT models..."
+                        : "No GPT models loaded"}
                     </option>
-                  ))}
+                  ) : (
+                    openaiModels.map((modelId) => (
+                      <option key={modelId} value={modelId}>
+                        {modelId}
+                      </option>
+                    ))
+                  )}
                 </select>
+                <p className="text-xs text-muted-foreground">
+                  {openaiModelStatus ||
+                    "Models are loaded live from OpenAI and filtered to ids that start with `gpt`."}
+                </p>
               </div>
             </>
           )}

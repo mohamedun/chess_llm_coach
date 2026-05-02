@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { sendChatMessage, evaluateMove, summarizeConversation } from "@/lib/ai";
+import {
+  sendChatMessage,
+  evaluateMove,
+  summarizeConversation,
+  isOpenAIChatCandidateModel,
+} from "@/lib/ai";
 import {
   sendGoogleChatMessage,
   summarizeGoogleConversation,
@@ -178,8 +183,10 @@ export const getGoogleApiKey = () =>
 export const getGoogleModel = () =>
   localStorage.getItem("chess-google-model") || "gemini-2.5-flash";
 
-export const getModel = () =>
-  localStorage.getItem("chess-coach-model") || "gpt-4o-mini";
+export const getModel = () => {
+  const model = localStorage.getItem("chess-coach-model") || "";
+  return isOpenAIChatCandidateModel(model) ? model : "";
+};
 
 export const getElo = () =>
   Number.parseInt(localStorage.getItem("chess-coach-elo") || "1000", 10);

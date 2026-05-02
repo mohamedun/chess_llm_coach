@@ -17,6 +17,33 @@ const formatSummarySourceMessages = (messages) =>
     })
     .join("\n\n");
 
+export const isOpenAIChatCandidateModel = (modelId) =>
+  typeof modelId === "string" && modelId.trim().startsWith("gpt");
+
+export const listOpenAIModels = async ({ apiKey }) => {
+  if (!apiKey) {
+    throw new Error("Please set your OpenAI API key in Settings first.");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/models", {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error?.message || `API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  return (data.data || [])
+    .map((entry) => entry?.id)
+    .filter(isOpenAIChatCandidateModel)
+    .sort((left, right) => left.localeCompare(right));
+};
+
 /**
  * Send a chat message to OpenAI and return the assistant's response text.
  */
@@ -24,10 +51,13 @@ export const sendChatMessage = async ({
   messages,
   fen,
   apiKey,
-  model = "gpt-4o-mini",
+  model,
 }) => {
   if (!apiKey) {
     throw new Error("Please set your API key in Settings first.");
+  }
+  if (!isOpenAIChatCandidateModel(model)) {
+    throw new Error("Please choose an OpenAI GPT model in Settings first.");
   }
 
   const systemMessage = {
@@ -120,10 +150,13 @@ export const summarizeConversation = async ({
   messages,
   existingSummary = "",
   apiKey,
-  model = "gpt-4o-mini",
+  model,
 }) => {
   if (!apiKey) {
     throw new Error("Please set your OpenAI API key in Settings first.");
+  }
+  if (!isOpenAIChatCandidateModel(model)) {
+    throw new Error("Please choose an OpenAI GPT model in Settings first.");
   }
 
   const sourceMessages = formatSummarySourceMessages(messages);
@@ -179,10 +212,13 @@ export const getGMThoughtProcess = async ({
   moveHistorySan = [],
   elo = 1000,
   apiKey,
-  model = "gpt-4o-mini",
+  model,
 }) => {
   if (!apiKey) {
     throw new Error("Please set your OpenAI API key in Settings first.");
+  }
+  if (!isOpenAIChatCandidateModel(model)) {
+    throw new Error("Please choose an OpenAI GPT model in Settings first.");
   }
 
   // Format Stockfish lines for the prompt
